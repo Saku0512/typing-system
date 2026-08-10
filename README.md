@@ -47,7 +47,7 @@ npm run dev
 TOURNAMENT_NAME="秋季スポーツ大会 タイピング競技"
 ```
 
-出場クラスは`docs/typing-team-structure-v1.json`を正本とし、個人名は登録しません。選手は`クラス名_連番`形式（例: `IS2_1`、`専教_2`）で識別します。
+出場クラスは`docs/typing-team-structure-v1.json`を正本とし、個人名は登録しません。出場者は代表選出元（例: `IS2`、`専教`）で識別します。
 
 Dockerを使う場合は次のコマンドで起動します。
 

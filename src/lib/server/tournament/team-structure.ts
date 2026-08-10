@@ -28,7 +28,6 @@ const teamStructure = teamStructureSchema.parse(teamStructureDocument);
 export type ParticipantSlot = {
 	id: string;
 	representativeSource: string;
-	required: boolean;
 };
 
 export type TeamDefinition = {
@@ -47,9 +46,8 @@ export const teams: TeamDefinition[] = teamStructure.teams.map((team) => {
 			name: team.team_name,
 			representativeSources: team.representative_sources,
 			participantSlots: team.representative_sources.map((source) => ({
-				id: `${source}_1`,
-				representativeSource: source,
-				required: true
+				id: source,
+				representativeSource: source
 			}))
 		};
 	}
@@ -62,11 +60,7 @@ export const teams: TeamDefinition[] = teamStructure.teams.map((team) => {
 	return {
 		name: team.team_name,
 		representativeSources: team.representative_sources,
-		participantSlots: Array.from({ length: team.maximum_representatives }, (_, index) => ({
-			id: `${source}_${index + 1}`,
-			representativeSource: source,
-			required: index < team.minimum_representatives
-		}))
+		participantSlots: [{ id: source, representativeSource: source }]
 	};
 });
 

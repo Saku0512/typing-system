@@ -12,8 +12,8 @@ test('loads the configured tournament and reports database connectivity', async 
 
 	await expect(page.locator('h1')).toHaveText(tournamentName);
 	await expect(page.getByRole('heading', { name: '出場枠' })).toBeVisible();
-	await expect(page.getByText('1-1_1', { exact: true })).toBeVisible();
-	await expect(page.getByText('専教_3', { exact: true })).toBeVisible();
+	await expect(page.getByText('1-1', { exact: true }).first()).toBeVisible();
+	await expect(page.getByText('専教', { exact: true }).first()).toBeVisible();
 
 	const response = await request.get('/api/health');
 	expect(response.ok()).toBe(true);

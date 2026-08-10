@@ -23,7 +23,7 @@
 			<div class="participant-row participant-header" aria-hidden="true">
 				<span>チーム</span>
 				<span>出場クラス</span>
-				<span>選手ID</span>
+				<span>出場ID</span>
 			</div>
 			{#each data.teams as team (team.name)}
 				<div class="participant-row">

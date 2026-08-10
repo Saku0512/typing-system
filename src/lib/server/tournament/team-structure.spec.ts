@@ -14,14 +14,11 @@ describe('fixed participant slots', () => {
 		]);
 	});
 
-	it('uses class-number identifiers without personal names', () => {
-		expect(participantSlots).toHaveLength(18);
-		expect(participantSlots.filter((slot) => slot.required)).toHaveLength(16);
-		expect(participantSlots.map((slot) => slot.id)).toContain('1-1_1');
-		expect(participantSlots.map((slot) => slot.id)).toContain('IS2_1');
-		expect(participantSlots.map((slot) => slot.id)).toEqual(
-			expect.arrayContaining(['専教_1', '専教_2', '専教_3'])
-		);
+	it('uses representative sources as identifiers without personal names', () => {
+		expect(participantSlots).toHaveLength(16);
+		expect(participantSlots.map((slot) => slot.id)).toContain('1-1');
+		expect(participantSlots.map((slot) => slot.id)).toContain('IS2');
+		expect(participantSlots.map((slot) => slot.id)).toContain('専教');
 		expect(participantSlots.every((slot) => !('name' in slot))).toBe(true);
 	});
 });
