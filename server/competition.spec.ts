@@ -63,6 +63,11 @@ describe('finished competition results', () => {
 	it('replaces the saved results for a match atomically', () => {
 		const database = new Database(':memory:');
 		database.exec(`
+			create table match_confirmations (
+				match_number integer primary key,
+				confirmed_at integer not null,
+				confirmed_by text not null
+			);
 			create table match_results (
 				match_number integer not null,
 				lane_number integer not null,
@@ -113,6 +118,11 @@ describe('finished competition results', () => {
 				)
 				.all()
 		).toEqual([{ laneNumber: 2, rank: 1, score: 130, finishedAt: 2_000 }]);
+
+		database.prepare('insert into match_confirmations values (1, 2000, ?)').run('admin');
+		expect(() => saveMatchResults(database, snapshot([result(1, 1, 140)]), 3_000)).toThrow(
+			'Results for match 1 are already confirmed'
+		);
 		database.close();
 	});
 });

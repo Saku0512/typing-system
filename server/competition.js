@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { WebSocket } from 'ws';
+import {
+	addResultSubscriber,
+	publishResultNotification,
+	removeResultSubscriber
+} from './result-notifications.js';
 import { applyTypingEvent, createTypingState, getTypingView } from './typing-engine.js';
 
 /**
@@ -25,14 +30,13 @@ const mainPresets = new Map(
 export function createCompetitionManager() {
 	const rooms = new Map();
 	const connections = new WeakMap();
-	const resultSubscribers = new Set();
 
 	return {
 		/** @param {WebSocket} webSocket @param {any} message */
 		handle(webSocket, message) {
 			if (message.type === 'results.subscribe') {
 				leaveCurrentConnection(webSocket);
-				resultSubscribers.add(webSocket);
+				addResultSubscriber(webSocket);
 				connections.set(webSocket, { role: 'results' });
 				return true;
 			}
@@ -132,7 +136,6 @@ export function createCompetitionManager() {
 			endsAt: null,
 			ticker: null,
 			monitors: new Set(),
-			resultSubscribers,
 			lanes: new Map(
 				assignments.map((assignment) => [
 					assignment.laneNumber,
@@ -161,7 +164,7 @@ export function createCompetitionManager() {
 			return;
 		}
 		if (connection.role === 'results') {
-			resultSubscribers.delete(webSocket);
+			removeResultSubscriber(webSocket);
 			return;
 		}
 
@@ -207,9 +210,10 @@ function finishRoom(room) {
 		console.error(`Failed to persist results for match ${room.matchNumber}`, error);
 	}
 	broadcastSnapshot(room);
-	for (const subscriber of room.resultSubscribers) {
-		send(subscriber, { type: 'competition.finished', data: { matchNumber: room.matchNumber } });
-	}
+	publishResultNotification({
+		type: 'competition.finished',
+		data: { matchNumber: room.matchNumber }
+	});
 }
 
 /** @param {any} room */
@@ -230,6 +234,7 @@ function persistRoomResults(room) {
  * @param {number} finishedAt
  */
 export function saveMatchResults(database, snapshot, finishedAt) {
+	const isConfirmed = database.prepare('select 1 from match_confirmations where match_number = ?');
 	const removePreviousResults = database.prepare(
 		'delete from match_results where match_number = ?'
 	);
@@ -243,6 +248,9 @@ export function saveMatchResults(database, snapshot, finishedAt) {
 	`);
 
 	const replaceResults = database.transaction(() => {
+		if (isConfirmed.get(snapshot.matchNumber)) {
+			throw new Error(`Results for match ${snapshot.matchNumber} are already confirmed`);
+		}
 		removePreviousResults.run(snapshot.matchNumber);
 		for (const lane of snapshot.lanes) {
 			if (lane.rank === null) throw new Error('A finished result must have a rank');

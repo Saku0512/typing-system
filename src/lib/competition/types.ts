@@ -44,6 +44,7 @@ export type CompetitionSnapshot = {
 export type CompetitionServerMessage =
 	| { type: 'competition.snapshot'; data: CompetitionSnapshot }
 	| { type: 'competition.finished'; data: { matchNumber: number } }
+	| { type: 'competition.confirmed'; data: { matchNumber: number } }
 	| { type: 'typing.joined'; data: { matchNumber: number; laneNumber: number } }
 	| {
 			type: 'typing.input-result';

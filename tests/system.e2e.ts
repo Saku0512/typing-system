@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import Database from 'better-sqlite3';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -14,6 +15,7 @@ if (!process.env.TOURNAMENT_NAME || !process.env.ADMIN_USERNAME || !process.env.
 const tournamentName = process.env.TOURNAMENT_NAME;
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
+const databaseUrl = process.env.DATABASE_URL ?? 'data/e2e.db';
 if (!tournamentName || !adminUsername || !adminPassword) {
 	throw new Error('TOURNAMENT_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD must be set');
 }
@@ -46,7 +48,9 @@ test('protects the admin screen and saves valid assignments', async ({ browser, 
 	await page.goto('/admin');
 
 	await expect(page.getByRole('heading', { name: '大会管理' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: '第1試合' })).toBeVisible();
+	await expect(
+		page.locator('.match-editor').first().getByRole('heading', { name: '第1試合' })
+	).toBeVisible();
 	await expect(page.locator('select[name="source_1_1"]')).toHaveValue('IS2');
 	await page.getByRole('button', { name: '保存' }).first().click();
 	await expect(page.getByRole('status')).toHaveText('保存しました。');
@@ -59,6 +63,89 @@ test('protects the admin screen and saves valid assignments', async ({ browser, 
 	await expect(firstMatch.getByText('1-1', { exact: true })).toBeVisible();
 
 	await context.close();
+});
+
+test('confirms finished matches manually before publishing overall standings', async ({
+	browser,
+	page
+}) => {
+	const database = new Database(databaseUrl);
+	const insertResult = database.prepare(`
+		insert into match_results (
+			match_number, lane_number, team_name, representative_source,
+			correct_types, incorrect_types, completed_problems,
+			wpm, accuracy, raw_score, score, rank,
+			problem_set_id, problem_set_version, finished_at
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`);
+	const teams = [
+		{ name: '1年生', source: '1-1' },
+		{ name: '2年生', source: 'IS2' },
+		{ name: '3年生', source: 'IS3' },
+		{ name: '4年生', source: 'IS4' },
+		{ name: '5年生', source: 'IS5' },
+		{ name: '専攻科・教員', source: '専教' }
+	];
+	database.transaction(() => {
+		database.prepare('delete from match_confirmations').run();
+		database.prepare('delete from match_results').run();
+		for (const matchNumber of [1, 2, 3]) {
+			for (const [teamIndex, team] of teams.entries()) {
+				const laneNumber = teamIndex + 1;
+				const score = 150 - laneNumber * 10 + matchNumber;
+				insertResult.run(
+					matchNumber,
+					laneNumber,
+					team.name,
+					team.source,
+					420 - laneNumber * 10,
+					5 + laneNumber,
+					12,
+					140 - laneNumber * 5,
+					0.98 - laneNumber * 0.002,
+					score + 0.5,
+					score,
+					laneNumber,
+					`match-${matchNumber}-main-v1`,
+					1,
+					Date.now()
+				);
+			}
+		}
+	})();
+	database.close();
+
+	const adminContext = await browser.newContext({
+		httpCredentials: { username: adminUsername, password: adminPassword }
+	});
+	const admin = await adminContext.newPage();
+	try {
+		await page.goto('/');
+		await expect(page.getByText('未確定', { exact: true })).toHaveCount(3);
+		await expect(page.getByRole('heading', { name: '総合順位' })).toHaveCount(0);
+
+		await admin.goto('/admin');
+		admin.on('dialog', (dialog) => dialog.accept());
+		for (const matchNumber of [1, 2, 3]) {
+			const match = admin.locator('.confirmation-match').nth(matchNumber - 1);
+			await expect(match.getByText('未確定', { exact: true })).toBeVisible();
+			await match.getByRole('button', { name: '結果を確定' }).click();
+			await expect(admin.getByRole('status')).toHaveText(
+				`第${matchNumber}試合の結果を確定しました。`
+			);
+		}
+
+		await expect(page.getByRole('heading', { name: '総合順位' })).toBeVisible();
+		await expect(page.locator('.overall-total').first()).toContainText('426');
+	} finally {
+		await adminContext.close();
+		const cleanupDatabase = new Database(databaseUrl);
+		cleanupDatabase.transaction(() => {
+			cleanupDatabase.prepare('delete from match_confirmations').run();
+			cleanupDatabase.prepare('delete from match_results').run();
+		})();
+		cleanupDatabase.close();
+	}
 });
 
 test('synchronizes six competition terminals with monitoring', async ({ browser }) => {

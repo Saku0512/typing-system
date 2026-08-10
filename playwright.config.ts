@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 const port = Number(process.env.PORT ?? 3000);
+process.env.DATABASE_URL ??= 'data/e2e.db';
 
 export default defineConfig({
 	workers: process.env.CI ? 1 : undefined,

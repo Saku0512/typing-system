@@ -18,7 +18,9 @@
 			});
 			socket.addEventListener('message', (event) => {
 				const message = JSON.parse(event.data) as CompetitionServerMessage;
-				if (message.type === 'competition.finished') void invalidateAll();
+				if (message.type === 'competition.finished' || message.type === 'competition.confirmed') {
+					void invalidateAll();
+				}
 			});
 			socket.addEventListener('close', () => {
 				if (!stopped) reconnectTimer = setTimeout(connect, 1_000);
@@ -79,7 +81,11 @@
 					<section class="scheduled-match" aria-labelledby={`public-match-${matchNumber}-heading`}>
 						<div class="match-heading">
 							<h3 id={`public-match-${matchNumber}-heading`}>第{matchNumber}試合</h3>
-							{#if matchResults.length === 6}<span>終了</span>{/if}
+							{#if data.confirmedMatchNumbers.includes(matchNumber)}
+								<span>確定</span>
+							{:else if matchResults.length === 6}
+								<span>未確定</span>
+							{/if}
 						</div>
 						<div class="lane-table">
 							<div class="lane-row lane-header" aria-hidden="true">

@@ -42,3 +42,9 @@ export const matchResults = sqliteTable(
 	},
 	(table) => [primaryKey({ columns: [table.matchNumber, table.laneNumber] })]
 );
+
+export const matchConfirmations = sqliteTable('match_confirmations', {
+	matchNumber: integer('match_number').primaryKey(),
+	confirmedAt: integer('confirmed_at', { mode: 'timestamp_ms' }).notNull(),
+	confirmedBy: text('confirmed_by').notNull()
+});
