@@ -13,6 +13,7 @@ import {
 	getMatchOperations,
 	getMatchResults
 } from '$lib/server/tournament/match-results';
+import { getResultExportState } from '$lib/server/tournament/result-export';
 import { teams } from '$lib/server/tournament/team-structure';
 import { asc } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
@@ -33,6 +34,14 @@ export const load: PageServerLoad = () => {
 		.from(matchAssignments)
 		.orderBy(asc(matchAssignments.matchNumber), asc(matchAssignments.laneNumber))
 		.all();
+	const exportDatabase = new Database(env.DATABASE_URL ?? 'data/typing-system.db');
+	exportDatabase.pragma('busy_timeout = 5000');
+	let exportState;
+	try {
+		exportState = getResultExportState(exportDatabase);
+	} finally {
+		exportDatabase.close();
+	}
 
 	return {
 		tournamentName: env.TOURNAMENT_NAME,
@@ -42,7 +51,8 @@ export const load: PageServerLoad = () => {
 		confirmations: getMatchConfirmations(),
 		attempts: getMatchAttempts(),
 		attemptResults: getMatchAttemptResults(),
-		operations: getMatchOperations().reverse()
+		operations: getMatchOperations().reverse(),
+		exportState
 	};
 };
 

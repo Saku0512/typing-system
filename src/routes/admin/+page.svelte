@@ -467,6 +467,87 @@
 		{/each}
 	</section>
 
+	<section class="result-export" aria-labelledby="result-export-heading">
+		<div class="admin-toolbar">
+			<div>
+				<p class="eyebrow">SPORT EASE</p>
+				<h2 id="result-export-heading">確定結果JSON</h2>
+			</div>
+			<span class:ready={data.exportState.ready} class="export-readiness">
+				{data.exportState.ready
+					? '出力可能'
+					: `${data.exportState.confirmedMatchNumbers.length}/3試合確定`}
+			</span>
+		</div>
+
+		{#if data.exportState.ready}
+			<div class="export-summary">
+				<div>
+					<small>スキーマ</small>
+					<code>typing-results-v1</code>
+				</div>
+				<div>
+					<small>現在のexport_id</small>
+					<code>{data.exportState.currentExport?.exportId ?? '未出力'}</code>
+				</div>
+				<div>
+					<small>最終出力</small>
+					<span>
+						{data.exportState.currentExport
+							? data.exportState.currentExport.lastExportedAt.toLocaleString('ja-JP')
+							: '-'}
+					</span>
+				</div>
+				<a
+					class="primary-button download-button"
+					href={resolve('/admin/results.json')}
+					download="typing-results.json"
+				>
+					{data.exportState.currentExport ? 'JSONを再出力' : 'JSONを出力'}
+				</a>
+			</div>
+
+			<div class="export-preview-table">
+				<div class="export-preview-row export-preview-header" aria-hidden="true">
+					<span>順位</span>
+					<span>チーム</span>
+					<span>第1試合</span>
+					<span>第2試合</span>
+					<span>第3試合</span>
+					<span>合計</span>
+				</div>
+				{#each data.exportState.standings as standing (standing.teamName)}
+					<div class="export-preview-row">
+						<strong>{standing.rank}位</strong>
+						<strong>{standing.teamName}</strong>
+						<span>{standing.matchScores[0].toLocaleString()}</span>
+						<span>{standing.matchScores[1].toLocaleString()}</span>
+						<span>{standing.matchScores[2].toLocaleString()}</span>
+						<strong>{standing.totalScore.toLocaleString()}</strong>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="export-unavailable">第1〜第3試合の6名分の結果をすべて確定すると出力できます。</p>
+		{/if}
+
+		{#if data.exportState.exports.length > 0}
+			<h3 class="history-subheading">出力履歴</h3>
+			<div class="export-history-table">
+				{#each data.exportState.exports as exported (exported.exportId)}
+					<div class="export-history-row">
+						<code>{exported.exportId}</code>
+						<span><small>初回</small>{exported.createdAt.toLocaleString('ja-JP')}</span>
+						<span><small>最終</small>{exported.lastExportedAt.toLocaleString('ja-JP')}</span>
+						<strong>{exported.exportCount}回</strong>
+						<code title={exported.contentSha256}>{exported.contentSha256.slice(0, 12)}…</code>
+						<small>{exported.lastExportedBy}</small>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</section>
+
 	<section class="operation-history" aria-labelledby="operation-history-heading">
 		<div class="admin-toolbar">
 			<div>

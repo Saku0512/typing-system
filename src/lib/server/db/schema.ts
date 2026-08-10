@@ -112,3 +112,19 @@ export const matchOperations = sqliteTable('match_operations', {
 	operatedAt: integer('operated_at', { mode: 'timestamp_ms' }).notNull(),
 	operatedBy: text('operated_by').notNull()
 });
+
+export const resultExports = sqliteTable(
+	'result_exports',
+	{
+		exportId: text('export_id').primaryKey(),
+		resultFingerprint: text('result_fingerprint').notNull(),
+		contentSha256: text('content_sha256').notNull(),
+		payload: text('payload').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+		createdBy: text('created_by').notNull(),
+		lastExportedAt: integer('last_exported_at', { mode: 'timestamp_ms' }).notNull(),
+		lastExportedBy: text('last_exported_by').notNull(),
+		exportCount: integer('export_count').notNull()
+	},
+	(table) => [uniqueIndex('result_exports_fingerprint_unique').on(table.resultFingerprint)]
+);

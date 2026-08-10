@@ -87,6 +87,7 @@ test('confirms finished matches manually before publishing overall standings', a
 		{ name: '専攻科・教員', source: '専教' }
 	];
 	database.transaction(() => {
+		database.prepare('delete from result_exports').run();
 		database.prepare('delete from match_confirmations').run();
 		database.prepare('delete from match_disqualifications').run();
 		database.prepare('delete from match_operations').run();
@@ -130,6 +131,7 @@ test('confirms finished matches manually before publishing overall standings', a
 
 		await admin.goto('/admin');
 		admin.on('dialog', (dialog) => dialog.accept());
+		expect((await admin.request.get('/admin/results.json')).status()).toBe(409);
 		const firstMatch = admin.locator('.confirmation-match').first();
 		await firstMatch.getByLabel('第1試合の失格対象').selectOption('1');
 		await firstMatch.getByPlaceholder('失格の理由').fill('競技規定違反');
@@ -152,6 +154,33 @@ test('confirms finished matches manually before publishing overall standings', a
 				`第${matchNumber}試合の結果を確定しました。`
 			);
 		}
+		await expect(admin.getByRole('heading', { name: '確定結果JSON' })).toBeVisible();
+		await expect(admin.getByRole('link', { name: 'JSONを出力' })).toBeVisible();
+		const firstExportResponse = await admin.request.get('/admin/results.json');
+		expect(firstExportResponse.status()).toBe(200);
+		expect(firstExportResponse.headers()['content-disposition']).toContain(
+			'filename="typing-results.json"'
+		);
+		const firstExport = await firstExportResponse.json();
+		expect(Object.keys(firstExport)).toEqual(['schema_version', 'export_id', 'teams']);
+		expect(firstExport.schema_version).toBe('typing-results-v1');
+		expect(firstExport.teams).toHaveLength(6);
+		expect(firstExport.teams[0]).toEqual({
+			team_name: '2年生',
+			match_1_score: 131,
+			match_2_score: 132,
+			match_3_score: 133,
+			total_score: 396,
+			rank: 1
+		});
+		expect(JSON.stringify(firstExport)).not.toContain('representative_source');
+
+		const secondExportResponse = await admin.request.get('/admin/results.json');
+		expect(secondExportResponse.headers()['x-export-id']).toBe(firstExport.export_id);
+		expect(await secondExportResponse.text()).toBe(await firstExportResponse.text());
+		await admin.reload();
+		await expect(admin.getByRole('link', { name: 'JSONを再出力' })).toBeVisible();
+		await expect(admin.locator('.export-history-row')).toContainText('2回');
 
 		await expect(page.getByRole('heading', { name: '総合順位' })).toBeVisible();
 		await expect(page.locator('.overall-total').first()).toContainText('396');
@@ -160,6 +189,7 @@ test('confirms finished matches manually before publishing overall standings', a
 		await adminContext.close();
 		const cleanupDatabase = new Database(databaseUrl);
 		cleanupDatabase.transaction(() => {
+			cleanupDatabase.prepare('delete from result_exports').run();
 			cleanupDatabase.prepare('delete from match_confirmations').run();
 			cleanupDatabase.prepare('delete from match_disqualifications').run();
 			cleanupDatabase.prepare('delete from match_operations').run();
@@ -174,6 +204,7 @@ test('confirms finished matches manually before publishing overall standings', a
 test('synchronizes six competition terminals with monitoring', async ({ browser }) => {
 	const database = new Database(databaseUrl);
 	database.transaction(() => {
+		database.prepare('delete from result_exports').run();
 		database.prepare('delete from match_confirmations').run();
 		database.prepare('delete from match_disqualifications').run();
 		database.prepare('delete from match_operations').run();
