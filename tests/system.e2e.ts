@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test';
 
-process.loadEnvFile?.();
+if (!process.env.TOURNAMENT_NAME || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
+	try {
+		process.loadEnvFile?.();
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+			throw error;
+		}
+	}
+}
 const tournamentName = process.env.TOURNAMENT_NAME;
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
