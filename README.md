@@ -41,6 +41,14 @@ npm run dev
 
 ローカル開発サーバーは`http://localhost:5173`で起動します。
 
+大会名などの環境設定は`.env`から読み込みます。初回は`.env.example`を基に設定してください。
+
+```dotenv
+TOURNAMENT_NAME="秋季スポーツ大会 タイピング競技"
+```
+
+出場クラスは`docs/typing-team-structure-v1.json`を正本とし、個人名は登録しません。選手は`クラス名_連番`形式（例: `IS2_1`、`専教_2`）で識別します。
+
 Dockerを使う場合は次のコマンドで起動します。
 
 ```bash

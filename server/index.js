@@ -1,7 +1,13 @@
 import { createServer } from 'node:http';
-import { handler } from '../build/handler.js';
 import { attachRealtimeServer } from './realtime.js';
 
+try {
+	process.loadEnvFile?.();
+} catch (error) {
+	if (error?.code !== 'ENOENT') throw error;
+}
+
+const { handler } = await import('../build/handler.js');
 const host = process.env.HOST ?? '0.0.0.0';
 const port = Number(process.env.PORT ?? 3000);
 const server = createServer(handler);
