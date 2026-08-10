@@ -98,6 +98,13 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	const firstLane = monitor.getByRole('region', { name: 'レーン1 1年生' });
 	await expect(firstLane.getByText('靴音')).toBeVisible();
 	await expect(firstLane.locator('.monitor-metrics dd').first()).toHaveText('6');
+	await expect(firstLane.getByText('1位')).toBeVisible();
+	await expect(
+		monitor.getByRole('region', { name: 'レーン2 2年生' }).getByText('2位')
+	).toBeVisible();
+	await expect(
+		monitor.getByRole('region', { name: 'レーン3 3年生' }).getByText('2位')
+	).toBeVisible();
 
 	for (const terminalContext of terminalContexts) await terminalContext.close();
 	await monitorContext.close();

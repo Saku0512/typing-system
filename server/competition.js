@@ -243,13 +243,7 @@ function sendSnapshot(room, webSocket) {
 function createRoomSnapshot(room) {
 	const now = Date.now();
 	const lanes = [...room.lanes.values()].map((lane) => createLaneSnapshot(room, lane, now));
-	const ranked = [...lanes].sort(
-		(left, right) =>
-			right.score - left.score ||
-			right.correctTypes - left.correctTypes ||
-			left.incorrectTypes - right.incorrectTypes
-	);
-	const ranks = new Map(ranked.map((lane, index) => [lane.laneNumber, index + 1]));
+	const ranks = createIndividualRanks(lanes);
 
 	return {
 		matchNumber: room.matchNumber,
@@ -268,6 +262,54 @@ function createRoomSnapshot(room) {
 				room.status === 'waiting' || room.status === 'countdown' ? null : ranks.get(lane.laneNumber)
 		}))
 	};
+}
+
+/** @param {{ laneNumber: number, score: number, correctTypes: number, incorrectTypes: number }[]} lanes */
+export function createIndividualRanks(lanes) {
+	return new Map(
+		lanes.map((lane) => [
+			lane.laneNumber,
+			1 + lanes.filter((candidate) => compareIndividualResults(candidate, lane) < 0).length
+		])
+	);
+}
+
+/**
+ * Returns a negative value when left ranks ahead of right.
+ *
+ * @param {{ score: number, correctTypes: number, incorrectTypes: number }} left
+ * @param {{ score: number, correctTypes: number, incorrectTypes: number }} right
+ */
+export function compareIndividualResults(left, right) {
+	if (left.score !== right.score) return right.score - left.score;
+
+	const leftAttempts = left.correctTypes + left.incorrectTypes;
+	const rightAttempts = right.correctTypes + right.incorrectTypes;
+	const rawScoreComparison = compareFractions(
+		BigInt(left.correctTypes) ** 4n,
+		BigInt(Math.max(1, leftAttempts)) ** 3n,
+		BigInt(right.correctTypes) ** 4n,
+		BigInt(Math.max(1, rightAttempts)) ** 3n
+	);
+	if (rawScoreComparison !== 0) return -rawScoreComparison;
+
+	const accuracyComparison = compareFractions(
+		BigInt(left.correctTypes),
+		BigInt(Math.max(1, leftAttempts)),
+		BigInt(right.correctTypes),
+		BigInt(Math.max(1, rightAttempts))
+	);
+	if (accuracyComparison !== 0) return -accuracyComparison;
+
+	if (left.correctTypes !== right.correctTypes) return right.correctTypes - left.correctTypes;
+	return left.incorrectTypes - right.incorrectTypes;
+}
+
+/** @param {bigint} leftNumerator @param {bigint} leftDenominator @param {bigint} rightNumerator @param {bigint} rightDenominator */
+function compareFractions(leftNumerator, leftDenominator, rightNumerator, rightDenominator) {
+	const left = leftNumerator * rightDenominator;
+	const right = rightNumerator * leftDenominator;
+	return left > right ? 1 : left < right ? -1 : 0;
 }
 
 /** @param {any} room @param {any} lane @param {number} now */
