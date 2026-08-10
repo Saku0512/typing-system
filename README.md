@@ -45,9 +45,13 @@ npm run dev
 
 ```dotenv
 TOURNAMENT_NAME="秋季スポーツ大会 タイピング競技"
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
 ```
 
 出場クラスは`docs/typing-team-structure-v1.json`を正本とし、個人名は登録しません。出場者は代表選出元（例: `IS2`、`専教`）で識別します。
+
+管理画面は`/admin`です。Basic認証を使用するため、本番では推測されにくいパスワードへ変更し、HTTPS経由で公開してください。
 
 Dockerを使う場合は次のコマンドで起動します。
 

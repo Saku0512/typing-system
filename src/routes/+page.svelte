@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	let { data } = $props();
 </script>
 
@@ -43,6 +45,6 @@
 		<p class="eyebrow">MATCHES</p>
 		<h2 id="operation-heading">試合割り当て</h2>
 		<p>各チームの出場順とレーンを設定してください。</p>
-		<button type="button" disabled>試合を設定</button>
+		<a class="button-link" href={resolve('/admin')}>試合を設定</a>
 	</section>
 </main>

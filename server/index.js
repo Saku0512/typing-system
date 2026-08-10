@@ -7,10 +7,14 @@ try {
 	if (error?.code !== 'ENOENT') throw error;
 }
 
+process.env.PROTOCOL_HEADER ??= 'x-forwarded-proto';
 const { handler } = await import('../build/handler.js');
 const host = process.env.HOST ?? '0.0.0.0';
 const port = Number(process.env.PORT ?? 3000);
-const server = createServer(handler);
+const server = createServer((request, response) => {
+	request.headers['x-forwarded-proto'] ??= 'http';
+	handler(request, response);
+});
 const webSocketServer = attachRealtimeServer(server);
 
 server.listen(port, host, () => {
