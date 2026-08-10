@@ -37,6 +37,18 @@ export function confirmMatchResults(database, matchNumber, confirmedBy, confirme
 				.get(matchNumber)
 		);
 		if (!attempt) throw new Error(`Attempt for match ${matchNumber} was not found`);
+		database
+			.prepare(
+				`insert or ignore into match_attempt_results (
+				 match_number, attempt_number, lane_number, team_name, representative_source,
+				 correct_types, incorrect_types, completed_problems, wpm, accuracy, raw_score, score,
+				 rank, captured_at
+				)
+				select match_number, ?, lane_number, team_name, representative_source,
+				 correct_types, incorrect_types, completed_problems, wpm, accuracy, raw_score, score,
+				 rank, ? from match_results where match_number = ?`
+			)
+			.run(attempt.attemptNumber, confirmedAt, matchNumber);
 
 		database
 			.prepare(

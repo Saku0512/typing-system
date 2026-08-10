@@ -2,6 +2,7 @@ import { asc } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import {
 	matchAttempts,
+	matchAttemptResults,
 	matchConfirmations,
 	matchDisqualifications,
 	matchOperations,
@@ -68,6 +69,18 @@ export function getMatchAttempts() {
 		.select()
 		.from(matchAttempts)
 		.orderBy(asc(matchAttempts.matchNumber), asc(matchAttempts.attemptNumber))
+		.all();
+}
+
+export function getMatchAttemptResults() {
+	return db
+		.select()
+		.from(matchAttemptResults)
+		.orderBy(
+			asc(matchAttemptResults.matchNumber),
+			asc(matchAttemptResults.attemptNumber),
+			asc(matchAttemptResults.laneNumber)
+		)
 		.all();
 }
 

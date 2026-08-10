@@ -642,7 +642,167 @@ select {
 }
 
 .operation-history {
+	min-width: 0;
 	margin-top: 56px;
+}
+
+.history-match-tabs {
+	display: flex;
+	align-items: center;
+	border: 1px solid #aeb7b1;
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.history-match-tabs button {
+	min-width: 82px;
+	height: 36px;
+	padding: 0 12px;
+	color: #4e5953;
+	background: #fff;
+	border: 0;
+	border-left: 1px solid #d7dcd8;
+	border-radius: 0;
+}
+
+.history-match-tabs button:first-child {
+	border-left: 0;
+}
+
+.history-match-tabs button.active {
+	color: #f7faf8;
+	background: #182021;
+}
+
+.history-subheading {
+	margin: 28px 0 10px;
+	font-size: 0.9rem;
+}
+
+.attempt-history-list {
+	display: grid;
+	gap: 10px;
+}
+
+.attempt-history-item {
+	min-width: 0;
+	background: #fff;
+	border: 1px solid #cbd1cd;
+	border-radius: 4px;
+}
+
+.attempt-history-item summary {
+	display: grid;
+	grid-template-columns: minmax(190px, 1fr) 88px 170px 170px 72px;
+	align-items: center;
+	gap: 14px;
+	min-height: 64px;
+	padding: 10px 14px;
+	cursor: pointer;
+	list-style-position: inside;
+}
+
+.attempt-history-item[open] summary {
+	border-bottom: 1px solid #e2e6e3;
+}
+
+.attempt-identity {
+	display: grid;
+	gap: 4px;
+}
+
+.attempt-identity code {
+	font-size: 0.68rem;
+	color: #66706b;
+}
+
+.attempt-status {
+	justify-self: start;
+	padding: 4px 7px;
+	font-size: 0.68rem;
+	font-weight: 750;
+	color: #4e5953;
+	background: #edf0ed;
+	border: 1px solid #d7dcd8;
+	border-radius: 3px;
+}
+
+.attempt-status[data-status='confirmed'],
+.attempt-status[data-status='finished'] {
+	color: #14633c;
+	background: #e8f4ec;
+	border-color: #a8cfb7;
+}
+
+.attempt-status[data-status='interrupted'],
+.attempt-status[data-status='force_finished'],
+.attempt-status[data-status='invalidated'],
+.attempt-status[data-status='replaced'] {
+	color: #7d2920;
+	background: #faece9;
+	border-color: #dfb5af;
+}
+
+.attempt-time,
+.attempt-duration {
+	font-size: 0.72rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.attempt-time small,
+.attempt-duration small,
+.attempt-note small {
+	display: block;
+	margin-bottom: 2px;
+	font-size: 0.62rem;
+	color: #66706b;
+}
+
+.attempt-note {
+	display: grid;
+	grid-template-columns: minmax(180px, 1fr) 150px;
+	gap: 20px;
+	padding: 10px 14px;
+	font-size: 0.76rem;
+	background: #f8faf8;
+	border-bottom: 1px solid #e2e6e3;
+}
+
+.attempt-result-table {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+.attempt-result-row {
+	display: grid;
+	grid-template-columns: 54px minmax(120px, 1fr) minmax(90px, 0.8fr) repeat(6, 76px);
+	align-items: center;
+	gap: 12px;
+	min-width: 850px;
+	min-height: 46px;
+	padding: 7px 14px;
+	border-top: 1px solid #e2e6e3;
+	font-size: 0.76rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.attempt-result-row:first-child {
+	border-top: 0;
+}
+
+.attempt-result-header {
+	min-height: 34px;
+	font-size: 0.65rem;
+	font-weight: 750;
+	color: #66706b;
+	background: #e9ece9;
+}
+
+.attempt-result-empty {
+	margin: 0;
+	padding: 18px 14px;
+	font-size: 0.78rem;
+	color: #66706b;
 }
 
 .operation-history-table {
@@ -1291,6 +1451,44 @@ select {
 
 	.operation-history-table {
 		overflow-x: auto;
+	}
+
+	.operation-history .admin-toolbar {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.history-match-tabs {
+		width: 100%;
+	}
+
+	.history-match-tabs button {
+		flex: 1;
+		min-width: 0;
+		padding: 0 5px;
+		font-size: 0.72rem;
+	}
+
+	.attempt-history-item summary {
+		grid-template-columns: minmax(150px, 1fr) auto;
+		gap: 10px;
+		padding: 12px 10px;
+	}
+
+	.attempt-status {
+		grid-column: 2;
+		grid-row: 1;
+	}
+
+	.attempt-time,
+	.attempt-duration {
+		font-size: 0.68rem;
+	}
+
+	.attempt-note {
+		grid-template-columns: 1fr;
+		gap: 8px;
+		padding: 10px;
 	}
 
 	.operation-history-row {

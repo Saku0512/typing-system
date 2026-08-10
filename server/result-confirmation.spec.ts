@@ -8,6 +8,16 @@ function createDatabase() {
 		create table match_results (
 			match_number integer not null,
 			lane_number integer not null,
+			team_name text not null default '',
+			representative_source text not null default '',
+			correct_types integer not null default 0,
+			incorrect_types integer not null default 0,
+			completed_problems integer not null default 0,
+			wpm real not null default 0,
+			accuracy real not null default 0,
+			raw_score real not null default 0,
+			score integer not null default 0,
+			rank integer not null default 1,
 			problem_set_id text not null default 'typing-main-01',
 			problem_set_version integer not null default 1,
 			finished_at integer not null default 500,
@@ -23,6 +33,14 @@ function createDatabase() {
 			problem_set_id text not null, problem_set_version integer not null, status text not null,
 			started_at integer, ended_at integer, created_at integer not null, updated_at integer not null,
 			reason text, operated_by text, primary key (match_number, attempt_number)
+		);
+		create table match_attempt_results (
+			match_number integer not null, attempt_number integer not null, lane_number integer not null,
+			team_name text not null, representative_source text not null, correct_types integer not null,
+			incorrect_types integer not null, completed_problems integer not null, wpm real not null,
+			accuracy real not null, raw_score real not null, score integer not null, rank integer,
+			captured_at integer not null,
+			primary key (match_number, attempt_number, lane_number)
 		);
 		create table match_operations (
 			id integer primary key autoincrement, match_number integer not null,
@@ -84,6 +102,7 @@ describe('match result confirmation', () => {
 				)
 				.get()
 		).toEqual({ action: 'confirm', statusBefore: 'finished', statusAfter: 'confirmed' });
+		expect(database.prepare('select count(*) from match_attempt_results').pluck().get()).toBe(6);
 		database.close();
 	});
 });

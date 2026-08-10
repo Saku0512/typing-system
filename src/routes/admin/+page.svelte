@@ -11,6 +11,7 @@
 
 	let { data, form } = $props();
 	let currentAssignments = $derived(form?.assignments ?? data.assignments);
+	let historyMatch = $state(0);
 	let competitionStatuses = $state<CompetitionAdminStatus[]>(
 		[1, 2, 3].map((matchNumber) => ({
 			matchNumber,
@@ -118,6 +119,37 @@
 				replaced: '差し替え済み'
 			}[status] ?? status
 		);
+	}
+
+	function attemptsForHistory() {
+		return data.attempts
+			.filter((attempt) => historyMatch === 0 || attempt.matchNumber === historyMatch)
+			.slice()
+			.sort(
+				(left, right) =>
+					right.matchNumber - left.matchNumber || right.attemptNumber - left.attemptNumber
+			);
+	}
+
+	function attemptResultsFor(matchNumber: number, attemptNumber: number) {
+		return data.attemptResults.filter(
+			(result) => result.matchNumber === matchNumber && result.attemptNumber === attemptNumber
+		);
+	}
+
+	function operationsForHistory() {
+		return data.operations.filter(
+			(operation) => historyMatch === 0 || operation.matchNumber === historyMatch
+		);
+	}
+
+	function formatAuditTime(value: Date | null) {
+		return value?.toLocaleString('ja-JP') ?? '-';
+	}
+
+	function attemptDuration(startedAt: Date | null, endedAt: Date | null) {
+		if (!startedAt || !endedAt) return '-';
+		return `${Math.max(0, (endedAt.getTime() - startedAt.getTime()) / 1_000).toFixed(1)}秒`;
 	}
 
 	onMount(() => {
@@ -439,12 +471,92 @@
 		<div class="admin-toolbar">
 			<div>
 				<p class="eyebrow">AUDIT LOG</p>
-				<h2 id="operation-history-heading">競技操作履歴</h2>
+				<h2 id="operation-history-heading">試行・操作履歴</h2>
+			</div>
+			<div class="history-match-tabs" aria-label="履歴の試合フィルター">
+				{#each [0, 1, 2, 3] as matchNumber (matchNumber)}
+					<button
+						type="button"
+						class:active={historyMatch === matchNumber}
+						onclick={() => (historyMatch = matchNumber)}
+					>
+						{matchNumber === 0 ? 'すべて' : `第${matchNumber}試合`}
+					</button>
+				{/each}
 			</div>
 		</div>
-		{#if data.operations.length > 0}
+
+		<h3 class="history-subheading">試行履歴</h3>
+		{#if attemptsForHistory().length > 0}
+			<div class="attempt-history-list">
+				{#each attemptsForHistory() as attempt (`${attempt.matchNumber}-${attempt.attemptNumber}`)}
+					{@const attemptResults = attemptResultsFor(attempt.matchNumber, attempt.attemptNumber)}
+					<details class="attempt-history-item">
+						<summary>
+							<span class="attempt-identity">
+								<strong>第{attempt.matchNumber}試合 / 試技{attempt.attemptNumber}</strong>
+								<code>{attempt.problemSetId} v{attempt.problemSetVersion}</code>
+							</span>
+							<span class="attempt-status" data-status={attempt.status}>
+								{operationStatusLabel(attempt.status)}
+							</span>
+							<span class="attempt-time">
+								<small>開始</small>{formatAuditTime(attempt.startedAt)}
+							</span>
+							<span class="attempt-time">
+								<small>終了</small>{formatAuditTime(attempt.endedAt)}
+							</span>
+							<span class="attempt-duration">
+								<small>経過</small>{attemptDuration(attempt.startedAt, attempt.endedAt)}
+							</span>
+						</summary>
+						{#if attempt.reason || attempt.operatedBy}
+							<div class="attempt-note">
+								<span><small>理由</small>{attempt.reason ?? '-'}</span>
+								<span><small>操作者</small>{attempt.operatedBy ?? '-'}</span>
+							</div>
+						{/if}
+						{#if attemptResults.length > 0}
+							<div class="attempt-result-table">
+								<div class="attempt-result-row attempt-result-header" aria-hidden="true">
+									<span>レーン</span>
+									<span>チーム</span>
+									<span>出場クラス</span>
+									<span>正タイプ</span>
+									<span>ミス</span>
+									<span>WPM</span>
+									<span>正確率</span>
+									<span>計測スコア</span>
+									<span>順位</span>
+								</div>
+								{#each attemptResults as result (result.laneNumber)}
+									<div class="attempt-result-row">
+										<strong>{result.laneNumber}</strong>
+										<span>{result.teamName}</span>
+										<code>{result.representativeSource}</code>
+										<span>{result.correctTypes.toLocaleString()}</span>
+										<span>{result.incorrectTypes.toLocaleString()}</span>
+										<span>{result.wpm.toFixed(1)}</span>
+										<span>{(result.accuracy * 100).toFixed(1)}%</span>
+										<strong>{result.score.toLocaleString()}</strong>
+										<span>{result.rank === null ? '-' : `${result.rank}位`}</span>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="attempt-result-empty">この試技の計測結果はまだありません。</p>
+						{/if}
+					</details>
+				{/each}
+			</div>
+		{:else}
+			<p class="confirmation-empty">試行履歴はありません。</p>
+		{/if}
+
+		<h3 class="history-subheading">操作履歴</h3>
+		{#if operationsForHistory().length > 0}
 			<div class="operation-history-table">
-				{#each data.operations as operation (operation.id)}
+				{#each operationsForHistory() as operation (operation.id)}
 					<div class="operation-history-row">
 						<time datetime={operation.operatedAt.toISOString()}>
 							{operation.operatedAt.toLocaleString('ja-JP')}

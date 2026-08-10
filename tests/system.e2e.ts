@@ -258,7 +258,13 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	await expect(terminals[0].getByText('競技中', { exact: true })).toBeVisible({ timeout: 6_000 });
 	await firstMatchControl.getByRole('button', { name: '強制終了' }).click();
 	await expect(terminals[0].getByText('強制終了', { exact: true })).toBeVisible();
-	await expect(admin.getByRole('heading', { name: '競技操作履歴' })).toBeVisible();
+	await expect(admin.getByRole('heading', { name: '試行・操作履歴' })).toBeVisible();
+	await expect(admin.locator('.attempt-history-item')).toHaveCount(2);
+	const retryAttempt = admin.locator('.attempt-history-item').filter({
+		hasText: 'typing-reserve-01'
+	});
+	await retryAttempt.locator('summary').click();
+	await expect(retryAttempt.locator('.attempt-result-row')).toHaveCount(7);
 	await expect(admin.locator('.operation-history-row')).toHaveCount(6);
 
 	for (const terminalContext of terminalContexts) await terminalContext.close();

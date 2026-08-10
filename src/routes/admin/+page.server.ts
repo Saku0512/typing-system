@@ -8,6 +8,7 @@ import {
 } from '$lib/server/tournament/match-assignments';
 import {
 	getMatchAttempts,
+	getMatchAttemptResults,
 	getMatchConfirmations,
 	getMatchOperations,
 	getMatchResults
@@ -40,6 +41,7 @@ export const load: PageServerLoad = () => {
 		results: getMatchResults(),
 		confirmations: getMatchConfirmations(),
 		attempts: getMatchAttempts(),
+		attemptResults: getMatchAttemptResults(),
 		operations: getMatchOperations().reverse()
 	};
 };
