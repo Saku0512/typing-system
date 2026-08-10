@@ -1,5 +1,7 @@
 # typing-system
 
+[![CI](https://github.com/Saku0512/typing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Saku0512/typing-system/actions/workflows/ci.yml)
+
 秋季スポーツ大会で使用する独自タイピングシステムの開発コンペティション用リポジトリです。
 
 参加者はこのリポジトリをForkし、自分のFork上でシステムを実装してください。競技の公平性とSportEaseとの互換性を保つため、`docs/`にあるコア仕様、JSON Schema、問題プリセットは共通仕様として扱います。
@@ -77,6 +79,8 @@ npm run lint
 npm run test:unit -- --run
 npm run test:e2e
 ```
+
+同じ検証とproductionイメージのビルドは、`main`へのpushとPull RequestでGitHub Actionsから自動実行されます。
 
 ## License
 
