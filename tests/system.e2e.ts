@@ -49,5 +49,12 @@ test('protects the admin screen and saves valid assignments', async ({ browser, 
 	await page.getByRole('button', { name: '保存' }).first().click();
 	await expect(page.getByRole('status')).toHaveText('保存しました。');
 
+	await page.goto('/');
+	await expect(page.getByRole('heading', { name: '試合・レーン情報' })).toBeVisible();
+	const firstMatch = page.getByRole('region', { name: '第1試合' });
+	await expect(firstMatch.getByText('1', { exact: true })).toBeVisible();
+	await expect(firstMatch.getByText('1年生', { exact: true })).toBeVisible();
+	await expect(firstMatch.getByText('1-1', { exact: true })).toBeVisible();
+
 	await context.close();
 });
