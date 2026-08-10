@@ -9,12 +9,12 @@ export type MatchAssignment = {
 
 export function createDefaultAssignments(): MatchAssignment[] {
 	return [1, 2, 3].flatMap((matchNumber) =>
-		teams.map((team, teamIndex) => ({
+		teams.map((team) => ({
 			matchNumber,
 			teamName: team.name,
 			representativeSource:
 				team.representativeSources[matchNumber - 1] ?? team.representativeSources[0],
-			laneNumber: teamIndex + 1
+			laneNumber: team.laneNumber
 		}))
 	);
 }
@@ -43,12 +43,8 @@ export function validateAssignments(assignments: MatchAssignment[]): string[] {
 			issues.push(`${team.name}: 出場クラスが不正です。`);
 		}
 
-		if (
-			!Number.isInteger(assignment.laneNumber) ||
-			assignment.laneNumber < 1 ||
-			assignment.laneNumber > 6
-		) {
-			issues.push(`第${assignment.matchNumber}試合 ${team.name}: レーンは1〜6で指定してください。`);
+		if (!Number.isInteger(assignment.laneNumber) || assignment.laneNumber !== team.laneNumber) {
+			issues.push(`${team.name}のレーンは${team.laneNumber}です。`);
 		}
 
 		const key = `${assignment.matchNumber}:${team.name}`;

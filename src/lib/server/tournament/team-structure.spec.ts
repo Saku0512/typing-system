@@ -21,4 +21,15 @@ describe('fixed participant slots', () => {
 		expect(participantSlots.map((slot) => slot.id)).toContain('専教');
 		expect(participantSlots.every((slot) => !('name' in slot))).toBe(true);
 	});
+
+	it('assigns one fixed lane to each team', () => {
+		expect(teams.map((team) => [team.name, team.laneNumber])).toEqual([
+			['1年生', 1],
+			['2年生', 2],
+			['3年生', 3],
+			['4年生', 4],
+			['5年生', 5],
+			['専攻科・教員', 6]
+		]);
+	});
 });

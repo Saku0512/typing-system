@@ -35,7 +35,7 @@ export const actions = {
 				matchNumber,
 				teamName: team.name,
 				representativeSource: String(formData.get(`source_${matchNumber}_${teamIndex}`) ?? ''),
-				laneNumber: Number(formData.get(`lane_${matchNumber}_${teamIndex}`))
+				laneNumber: team.laneNumber
 			}))
 		);
 

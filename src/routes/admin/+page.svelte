@@ -69,14 +69,7 @@
 									{/each}
 								</select>
 							</label>
-							<label>
-								<span class="visually-hidden">第{matchNumber}試合 {team.name} レーン</span>
-								<select name={`lane_${matchNumber}_${teamIndex}`}>
-									{#each [1, 2, 3, 4, 5, 6] as lane (lane)}
-										<option value={lane} selected={assignment?.laneNumber === lane}>{lane}</option>
-									{/each}
-								</select>
-							</label>
+							<span class="fixed-lane">{team.laneNumber}</span>
 						</div>
 					{/each}
 				</div>

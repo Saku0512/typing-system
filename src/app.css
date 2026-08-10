@@ -21,6 +21,11 @@ select {
 	font: inherit;
 }
 
+.fixed-lane {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-weight: 700;
+}
+
 .app-header {
 	display: flex;
 	align-items: center;

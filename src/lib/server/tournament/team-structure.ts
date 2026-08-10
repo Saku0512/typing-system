@@ -32,11 +32,12 @@ export type ParticipantSlot = {
 
 export type TeamDefinition = {
 	name: string;
+	laneNumber: number;
 	representativeSources: string[];
 	participantSlots: ParticipantSlot[];
 };
 
-export const teams: TeamDefinition[] = teamStructure.teams.map((team) => {
+export const teams: TeamDefinition[] = teamStructure.teams.map((team, teamIndex) => {
 	if ('representative_count' in team) {
 		if (team.representative_count !== team.representative_sources.length) {
 			throw new Error(`${team.team_name}: representative count does not match its sources`);
@@ -44,6 +45,7 @@ export const teams: TeamDefinition[] = teamStructure.teams.map((team) => {
 
 		return {
 			name: team.team_name,
+			laneNumber: teamIndex + 1,
 			representativeSources: team.representative_sources,
 			participantSlots: team.representative_sources.map((source) => ({
 				id: source,
@@ -59,6 +61,7 @@ export const teams: TeamDefinition[] = teamStructure.teams.map((team) => {
 
 	return {
 		name: team.team_name,
+		laneNumber: teamIndex + 1,
 		representativeSources: team.representative_sources,
 		participantSlots: [{ id: source, representativeSource: source }]
 	};
