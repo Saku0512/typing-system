@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.describe.configure({ mode: 'serial' });
+
 if (!process.env.TOURNAMENT_NAME || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
 	try {
 		process.loadEnvFile?.();
@@ -55,6 +57,35 @@ test('protects the admin screen and saves valid assignments', async ({ browser, 
 	await expect(firstMatch.getByText('1', { exact: true })).toBeVisible();
 	await expect(firstMatch.getByText('1年生', { exact: true })).toBeVisible();
 	await expect(firstMatch.getByText('1-1', { exact: true })).toBeVisible();
+
+	await context.close();
+});
+
+test('synchronizes six competition terminals with monitoring', async ({ browser }) => {
+	const context = await browser.newContext();
+	const monitor = await context.newPage();
+	await monitor.goto('/monitoring');
+	const navigation = monitor.getByRole('navigation', { name: 'メインナビゲーション' });
+	await expect(navigation).toContainText('モニタリング');
+	await expect(navigation).toContainText('競技');
+
+	const terminals = [];
+	for (const laneNumber of [1, 2, 3, 4, 5, 6]) {
+		const terminal = await context.newPage();
+		terminals.push(terminal);
+		await terminal.goto('/competition');
+		await terminal.getByLabel('レーン').selectOption(String(laneNumber));
+		await terminal.getByRole('button', { name: '端末を接続' }).click();
+		await terminal.getByRole('button', { name: '準備完了' }).click();
+	}
+
+	await expect(monitor.getByText('6/6 準備')).toBeVisible();
+	await expect(terminals[0].getByText('競技中', { exact: true })).toBeVisible({ timeout: 6_000 });
+	await terminals[0].getByLabel('タイピング入力').pressSequentially('aozora');
+
+	const firstLane = monitor.getByRole('region', { name: 'レーン1 1年生' });
+	await expect(firstLane.getByText('靴音')).toBeVisible();
+	await expect(firstLane.locator('.monitor-metrics dd').first()).toHaveText('6');
 
 	await context.close();
 });

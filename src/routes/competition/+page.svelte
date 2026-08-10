@@ -1,0 +1,264 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import PublicHeader from '$lib/components/PublicHeader.svelte';
+	import {
+		webSocketUrl,
+		type CompetitionServerMessage,
+		type CompetitionSnapshot,
+		type LaneSnapshot
+	} from '$lib/competition/types';
+
+	let { data } = $props();
+	let selectedMatch = $state(1);
+	let selectedLane = $state(1);
+	let snapshot = $state<CompetitionSnapshot | null>(null);
+	let connectionState = $state<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+	let errorMessage = $state('');
+	let lastInputCorrect = $state<boolean | null>(null);
+	let now = $state(Date.now());
+	let clockOffset = $state(0);
+	let webSocket: WebSocket | null = null;
+	let typingSurface = $state<HTMLInputElement>();
+	let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+	let connectionAttempt = 0;
+	let stopped = false;
+	let shouldReconnect = false;
+
+	let assignment = $derived(
+		data.assignments.find(
+			(candidate) =>
+				candidate.matchNumber === selectedMatch && candidate.laneNumber === selectedLane
+		)
+	);
+	let ownLane = $derived<LaneSnapshot | undefined>(
+		snapshot?.matchNumber === selectedMatch
+			? snapshot.lanes.find((lane) => lane.laneNumber === selectedLane)
+			: undefined
+	);
+	let selectionLocked = $derived(
+		ownLane?.ready || snapshot?.status === 'countdown' || snapshot?.status === 'running'
+	);
+
+	onMount(() => {
+		const clock = setInterval(() => (now = Date.now()), 100);
+		return () => {
+			stopped = true;
+			shouldReconnect = false;
+			clearInterval(clock);
+			clearTimeout(reconnectTimer);
+			webSocket?.close();
+		};
+	});
+
+	$effect(() => {
+		if (ownLane?.status === 'running') typingSurface?.focus();
+	});
+
+	function connectTerminal() {
+		if (!assignment) return;
+		shouldReconnect = false;
+		webSocket?.close();
+		shouldReconnect = true;
+		openSocket();
+	}
+
+	function openSocket() {
+		const attempt = ++connectionAttempt;
+		connectionState = 'connecting';
+		errorMessage = '';
+		const socket = new WebSocket(webSocketUrl());
+		webSocket = socket;
+		socket.addEventListener('open', () => {
+			if (attempt !== connectionAttempt) return;
+			connectionState = 'connected';
+			socket.send(
+				JSON.stringify({
+					type: 'typing.join',
+					data: { matchNumber: selectedMatch, laneNumber: selectedLane }
+				})
+			);
+		});
+		socket.addEventListener('message', (event) => {
+			const message = JSON.parse(String(event.data)) as CompetitionServerMessage;
+			if (message.type === 'competition.snapshot') {
+				snapshot = message.data;
+				clockOffset = message.data.serverTime - Date.now();
+			}
+			if (message.type === 'typing.input-result') {
+				lastInputCorrect = message.data.correct ?? null;
+			}
+			if (message.type === 'system.error') {
+				connectionState = 'error';
+				errorMessage =
+					message.data.code === 'lane_reconnected'
+						? 'このレーンは別の端末で接続されました。'
+						: '競技端末を接続できませんでした。';
+				if (message.data.code === 'lane_reconnected') {
+					shouldReconnect = false;
+					socket.close();
+				}
+			}
+		});
+		socket.addEventListener('close', () => {
+			if (attempt !== connectionAttempt || stopped) return;
+			if (connectionState !== 'error') connectionState = 'connecting';
+			if (shouldReconnect) reconnectTimer = setTimeout(openSocket, 1_000);
+		});
+	}
+
+	function ready() {
+		if (webSocket?.readyState !== WebSocket.OPEN) return;
+		webSocket.send(JSON.stringify({ type: 'typing.ready' }));
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (ownLane?.status !== 'running' || webSocket?.readyState !== WebSocket.OPEN) return;
+		event.preventDefault();
+		webSocket.send(
+			JSON.stringify({
+				type: 'typing.input',
+				data: {
+					key: event.key,
+					repeat: event.repeat,
+					shift: event.shiftKey,
+					ctrl: event.ctrlKey,
+					alt: event.altKey,
+					meta: event.metaKey,
+					composing: event.isComposing
+				}
+			})
+		);
+	}
+
+	function remainingSeconds() {
+		if (!snapshot?.endsAt) return snapshot?.durationSeconds ?? 180;
+		return Math.max(0, Math.ceil((snapshot.endsAt - (now + clockOffset)) / 1_000));
+	}
+
+	function countdown() {
+		if (!snapshot?.startsAt) return 0;
+		return Math.max(0, Math.ceil((snapshot.startsAt - (now + clockOffset)) / 1_000));
+	}
+
+	function formatTime(seconds: number) {
+		return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+	}
+
+	function statusText() {
+		if (connectionState === 'idle') return '端末未接続';
+		if (connectionState === 'connecting') return '接続中';
+		if (connectionState === 'error') return '接続エラー';
+		if (snapshot?.status === 'finished') return '競技終了';
+		if (snapshot?.status === 'countdown') return `${countdown()}`;
+		if (ownLane?.status === 'running') return '競技中';
+		if (ownLane?.ready) return '全員の準備を待っています';
+		return '接続済み';
+	}
+</script>
+
+<svelte:head>
+	<title>競技 | {data.tournamentName}</title>
+	<meta name="description" content={`${data.tournamentName}のタイピング競技画面`} />
+</svelte:head>
+
+<PublicHeader tournamentName={data.tournamentName} current="competition" />
+
+<main class="competition-main">
+	<section class="terminal-setup" aria-labelledby="terminal-heading">
+		<div>
+			<p class="eyebrow">PLAYER TERMINAL</p>
+			<h1 id="terminal-heading">競技端末</h1>
+		</div>
+		<label>
+			<span>試合</span>
+			<select bind:value={selectedMatch} disabled={selectionLocked}>
+				{#each [1, 2, 3] as matchNumber (matchNumber)}<option value={matchNumber}
+						>第{matchNumber}試合</option
+					>{/each}
+			</select>
+		</label>
+		<label>
+			<span>レーン</span>
+			<select bind:value={selectedLane} disabled={selectionLocked}>
+				{#each [1, 2, 3, 4, 5, 6] as laneNumber (laneNumber)}<option value={laneNumber}
+						>{laneNumber}</option
+					>{/each}
+			</select>
+		</label>
+		<button type="button" onclick={connectTerminal} disabled={!assignment || selectionLocked}>
+			端末を接続
+		</button>
+	</section>
+
+	{#if !assignment}
+		<section class="empty-state">
+			<p>選択した試合のレーン情報が設定されていません。</p>
+		</section>
+	{:else}
+		<div
+			class="typing-terminal"
+			class:is-running={ownLane?.status === 'running'}
+			class:is-incorrect={lastInputCorrect === false}
+		>
+			<input
+				class="typing-capture"
+				aria-label="タイピング入力"
+				readonly
+				value=""
+				bind:this={typingSurface}
+				onkeydown={handleKeydown}
+				onpaste={(event) => event.preventDefault()}
+				oncopy={(event) => event.preventDefault()}
+				oncut={(event) => event.preventDefault()}
+				ondrop={(event) => event.preventDefault()}
+				oncontextmenu={(event) => event.preventDefault()}
+			/>
+			<header class="terminal-header">
+				<div>
+					<p>レーン {selectedLane}</p>
+					<h2>{assignment.teamName} <span>{assignment.representativeSource}</span></h2>
+				</div>
+				<div class="terminal-status" aria-live="polite">{statusText()}</div>
+				<time>{formatTime(remainingSeconds())}</time>
+			</header>
+
+			<div class="typing-stage">
+				<p class="problem-counter">
+					問題 {(ownLane?.problemIndex ?? 0) + 1} / {ownLane?.problemCount ?? 36}
+				</p>
+				<p class="problem-text">{ownLane?.displayText ?? '競技開始を待っています'}</p>
+				<p class="problem-reading">{ownLane?.reading ?? ''}</p>
+				<p class="romanized-input">
+					<span>{ownLane?.romanizedText.slice(0, ownLane.inputPosition) ?? ''}</span
+					>{ownLane?.romanizedText.slice(ownLane.inputPosition) ?? ''}
+				</p>
+			</div>
+
+			{#if connectionState === 'connected' && !ownLane?.ready && snapshot?.status !== 'finished'}
+				<div class="ready-action">
+					<button type="button" class="primary-button" onclick={ready}>準備完了</button>
+				</div>
+			{/if}
+			{#if errorMessage}<p class="terminal-error" role="alert">{errorMessage}</p>{/if}
+
+			<dl class="typing-metrics">
+				<div>
+					<dt>正タイプ</dt>
+					<dd>{ownLane?.correctTypes ?? 0}</dd>
+				</div>
+				<div>
+					<dt>ミス</dt>
+					<dd>{ownLane?.incorrectTypes ?? 0}</dd>
+				</div>
+				<div>
+					<dt>入力速度</dt>
+					<dd>{ownLane?.wpm.toFixed(0) ?? '0'}</dd>
+				</div>
+				<div>
+					<dt>正確率</dt>
+					<dd>{((ownLane?.accuracy ?? 0) * 100).toFixed(1)}%</dd>
+				</div>
+			</dl>
+		</div>
+	{/if}
+</main>

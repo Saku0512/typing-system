@@ -1,4 +1,6 @@
 <script lang="ts">
+	import PublicHeader from '$lib/components/PublicHeader.svelte';
+
 	let { data } = $props();
 </script>
 
@@ -7,12 +9,7 @@
 	<meta name="description" content={`${data.tournamentName}の競技タイピング運営画面`} />
 </svelte:head>
 
-<header class="app-header">
-	<div>
-		<p class="product-name">Typing System</p>
-		<h1>{data.tournamentName}</h1>
-	</div>
-</header>
+<PublicHeader tournamentName={data.tournamentName} current="overview" />
 
 <main>
 	<section aria-labelledby="participants-heading">

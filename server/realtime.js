@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import { createCompetitionManager } from './competition.js';
 import { parseClientMessage } from './protocol.js';
 
 const attachedServers = new WeakMap();
@@ -12,6 +13,7 @@ export function attachRealtimeServer(server) {
 	if (existing) return existing;
 
 	const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+	const competitionManager = createCompetitionManager();
 	attachedServers.set(server, webSocketServer);
 
 	server.on('upgrade', (request, socket, head) => {
@@ -56,8 +58,13 @@ export function attachRealtimeServer(server) {
 					type: 'system.pong',
 					data: { serverTime: new Date().toISOString() }
 				});
+				return;
 			}
+
+			competitionManager.handle(webSocket, parsed.data);
 		});
+
+		webSocket.on('close', () => competitionManager.disconnect(webSocket));
 	});
 
 	return webSocketServer;
