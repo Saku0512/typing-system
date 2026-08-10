@@ -733,6 +733,40 @@ select {
 	min-width: 140px;
 }
 
+.competition-result {
+	display: grid;
+	justify-items: center;
+	gap: 4px;
+	padding: 22px 20px;
+	color: #f7faf8;
+	background: #182021;
+	border-top: 3px solid #d2e449;
+}
+
+.competition-result p {
+	margin: 0;
+	font-size: 0.72rem;
+	font-weight: 750;
+	color: #d2e449;
+}
+
+.competition-result strong {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 2.75rem;
+	line-height: 1;
+}
+
+.competition-result strong span {
+	margin-left: 3px;
+	font-family: inherit;
+	font-size: 1rem;
+}
+
+.competition-result small {
+	color: #c4ccc8;
+	font-size: 0.78rem;
+}
+
 .terminal-error {
 	margin: 0;
 	padding: 12px 20px;

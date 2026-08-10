@@ -258,10 +258,14 @@ function createRoomSnapshot(room) {
 		readyCount: lanes.filter((lane) => lane.ready).length,
 		lanes: lanes.map((lane) => ({
 			...lane,
-			rank:
-				room.status === 'waiting' || room.status === 'countdown' ? null : ranks.get(lane.laneNumber)
+			rank: publishedRank(room.status, ranks.get(lane.laneNumber))
 		}))
 	};
+}
+
+/** @param {string} status @param {number | undefined} rank */
+export function publishedRank(status, rank) {
+	return status === 'finished' ? (rank ?? null) : null;
 }
 
 /** @param {{ laneNumber: number, score: number, correctTypes: number, incorrectTypes: number }[]} lanes */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createIndividualRanks } from './competition.js';
+import { createIndividualRanks, publishedRank } from './competition.js';
 
 type Result = {
 	laneNumber: number;
@@ -13,6 +13,13 @@ function ranksFor(results: Result[]) {
 }
 
 describe('individual competition ranking', () => {
+	it('publishes ranks only after the competition finishes', () => {
+		expect(publishedRank('waiting', 1)).toBeNull();
+		expect(publishedRank('countdown', 1)).toBeNull();
+		expect(publishedRank('running', 1)).toBeNull();
+		expect(publishedRank('finished', 1)).toBe(1);
+	});
+
 	it('uses the raw score when integer scores are tied', () => {
 		expect(
 			ranksFor([

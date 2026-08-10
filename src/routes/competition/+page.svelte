@@ -330,6 +330,14 @@
 				</p>
 			</div>
 
+			{#if snapshot?.status === 'finished' && ownLane?.rank}
+				<div class="competition-result" role="status">
+					<p>最終順位</p>
+					<strong>{ownLane.rank}<span>位</span></strong>
+					<small>総合スコア {ownLane.score}</small>
+				</div>
+			{/if}
+
 			{#if connectionState === 'connected' && !ownLane?.ready && snapshot?.status !== 'finished'}
 				<div class="ready-action">
 					<button type="button" class="primary-button" onclick={ready}>準備完了</button>
