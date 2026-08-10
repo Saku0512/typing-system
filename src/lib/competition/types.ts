@@ -41,10 +41,18 @@ export type CompetitionSnapshot = {
 	lanes: LaneSnapshot[];
 };
 
+export type CompetitionAdminStatus = {
+	matchNumber: number;
+	status: CompetitionStatus;
+	connectedCount: number;
+	readyCount: number;
+};
+
 export type CompetitionServerMessage =
 	| { type: 'competition.snapshot'; data: CompetitionSnapshot }
 	| { type: 'competition.finished'; data: { matchNumber: number } }
 	| { type: 'competition.confirmed'; data: { matchNumber: number } }
+	| { type: 'competition.admin-status'; data: { matches: CompetitionAdminStatus[] } }
 	| { type: 'typing.joined'; data: { matchNumber: number; laneNumber: number } }
 	| {
 			type: 'typing.input-result';

@@ -1,11 +1,24 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { webSocketUrl, type CompetitionServerMessage } from '$lib/competition/types';
+	import {
+		webSocketUrl,
+		type CompetitionAdminStatus,
+		type CompetitionServerMessage,
+		type CompetitionStatus
+	} from '$lib/competition/types';
 	import { onMount } from 'svelte';
 
 	let { data, form } = $props();
 	let currentAssignments = $derived(form?.assignments ?? data.assignments);
+	let competitionStatuses = $state<CompetitionAdminStatus[]>(
+		[1, 2, 3].map((matchNumber) => ({
+			matchNumber,
+			status: 'waiting',
+			connectedCount: 0,
+			readyCount: 0
+		}))
+	);
 
 	function assignmentFor(matchNumber: number, teamName: string) {
 		return currentAssignments.find(
@@ -19,6 +32,40 @@
 
 	function confirmationFor(matchNumber: number) {
 		return data.confirmations.find((confirmation) => confirmation.matchNumber === matchNumber);
+	}
+
+	function competitionStatusFor(matchNumber: number) {
+		return competitionStatuses.find((status) => status.matchNumber === matchNumber)!;
+	}
+
+	function displayedStatus(matchNumber: number): CompetitionStatus {
+		return resultsFor(matchNumber).length === 6
+			? 'finished'
+			: competitionStatusFor(matchNumber).status;
+	}
+
+	function statusLabel(status: CompetitionStatus) {
+		return {
+			waiting: '準備待ち',
+			countdown: '開始待機',
+			running: '競技中',
+			finished: '終了'
+		}[status];
+	}
+
+	function canStart(matchNumber: number) {
+		const status = competitionStatusFor(matchNumber);
+		return (
+			displayedStatus(matchNumber) === 'waiting' &&
+			status.connectedCount === 6 &&
+			status.readyCount === 6
+		);
+	}
+
+	function startSubmission(event: SubmitEvent, matchNumber: number) {
+		if (!window.confirm(`第${matchNumber}試合を一括開始します。よろしいですか？`)) {
+			event.preventDefault();
+		}
 	}
 
 	function confirmSubmission(event: SubmitEvent, matchNumber: number) {
@@ -35,11 +82,19 @@
 		const connect = () => {
 			socket = new WebSocket(webSocketUrl());
 			socket.addEventListener('open', () => {
-				socket?.send(JSON.stringify({ type: 'results.subscribe' }));
+				socket?.send(JSON.stringify({ type: 'admin.subscribe' }));
 			});
 			socket.addEventListener('message', (event) => {
 				const message = JSON.parse(event.data) as CompetitionServerMessage;
-				if (message.type === 'competition.finished' || message.type === 'competition.confirmed') {
+				if (message.type === 'competition.admin-status') {
+					const newlyFinished = message.data.matches.some(
+						(status) =>
+							status.status === 'finished' &&
+							competitionStatusFor(status.matchNumber).status !== 'finished'
+					);
+					competitionStatuses = message.data.matches;
+					if (newlyFinished) void invalidateAll();
+				} else if (message.type === 'competition.confirmed') {
 					void invalidateAll();
 				}
 			});
@@ -126,6 +181,53 @@
 			<button class="primary-button" type="submit">保存</button>
 		</div>
 	</form>
+
+	<section class="competition-start" aria-labelledby="competition-start-heading">
+		<div class="admin-toolbar">
+			<div>
+				<p class="eyebrow">CONTROL</p>
+				<h2 id="competition-start-heading">競技開始</h2>
+			</div>
+		</div>
+
+		{#if form?.started}
+			<p class="form-notice is-success" role="status">
+				第{form.startedMatchNumber}試合を開始しました。
+			</p>
+		{/if}
+		{#if form?.startIssue}
+			<p class="form-notice is-error" role="alert">{form.startIssue}</p>
+		{/if}
+
+		<div class="competition-control-table">
+			<div class="competition-control-row competition-control-header" aria-hidden="true">
+				<span>試合</span>
+				<span>状態</span>
+				<span>接続</span>
+				<span>準備</span>
+				<span>操作</span>
+			</div>
+			{#each [1, 2, 3] as matchNumber (matchNumber)}
+				{@const status = competitionStatusFor(matchNumber)}
+				<div class="competition-control-row">
+					<strong>第{matchNumber}試合</strong>
+					<span class="competition-state" data-status={displayedStatus(matchNumber)}>
+						{statusLabel(displayedStatus(matchNumber))}
+					</span>
+					<span class="competition-count"><small>接続</small>{status.connectedCount}/6</span>
+					<span class="competition-count"><small>準備</small>{status.readyCount}/6</span>
+					<form
+						method="POST"
+						action="?/startCompetition"
+						onsubmit={(event) => startSubmission(event, matchNumber)}
+					>
+						<input type="hidden" name="matchNumber" value={matchNumber} />
+						<button type="submit" disabled={!canStart(matchNumber)}>一括開始</button>
+					</form>
+				</div>
+			{/each}
+		</div>
+	</section>
 
 	<section class="result-confirmation" aria-labelledby="result-confirmation-heading">
 		<div class="admin-toolbar">

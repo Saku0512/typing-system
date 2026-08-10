@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const clientMessageSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('system.ping') }).strict(),
 	z.object({ type: z.literal('results.subscribe') }).strict(),
+	z.object({ type: z.literal('admin.subscribe') }).strict(),
 	z
 		.object({
 			type: z.literal('monitor.subscribe'),

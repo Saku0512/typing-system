@@ -5,6 +5,7 @@ describe('realtime protocol', () => {
 	it('accepts supported messages', () => {
 		expect(parseClientMessage({ type: 'system.ping' }).success).toBe(true);
 		expect(parseClientMessage({ type: 'results.subscribe' }).success).toBe(true);
+		expect(parseClientMessage({ type: 'admin.subscribe' }).success).toBe(true);
 		expect(
 			parseClientMessage({ type: 'monitor.subscribe', data: { matchNumber: 2 } }).success
 		).toBe(true);

@@ -175,6 +175,22 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	}
 
 	await expect(monitor.getByText('6/6 準備')).toBeVisible();
+	await expect(terminals[0].getByText('全員の準備を待っています')).toBeVisible();
+	await expect(terminals[0].getByText('競技中', { exact: true })).toHaveCount(0);
+
+	const adminContext = await browser.newContext({
+		httpCredentials: { username: adminUsername, password: adminPassword }
+	});
+	const admin = await adminContext.newPage();
+	await admin.goto('/admin');
+	const firstMatchControl = admin
+		.locator('.competition-control-row')
+		.filter({ hasText: '第1試合' });
+	await expect(firstMatchControl.locator('.competition-count')).toHaveText([/6\/6/, /6\/6/]);
+	admin.on('dialog', (dialog) => dialog.accept());
+	await firstMatchControl.getByRole('button', { name: '一括開始' }).click();
+	await expect(admin.getByRole('status')).toHaveText('第1試合を開始しました。');
+
 	await expect(terminals[0].getByText('競技中', { exact: true })).toBeVisible({ timeout: 6_000 });
 	await terminals[1].reload();
 	await expect(terminals[1].getByLabel('出場クラス')).toHaveValue('IS2');
@@ -189,5 +205,6 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	await expect(terminals[0].getByText('最終順位')).toHaveCount(0);
 
 	for (const terminalContext of terminalContexts) await terminalContext.close();
+	await adminContext.close();
 	await monitorContext.close();
 });

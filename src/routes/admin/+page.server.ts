@@ -11,6 +11,7 @@ import { teams } from '$lib/server/tournament/team-structure';
 import { asc } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import Database from 'better-sqlite3';
+import { requestCompetitionStart } from '../../../server/competition-controls.js';
 import { confirmMatchResults } from '../../../server/result-confirmation.js';
 import { publishResultNotification } from '../../../server/result-notifications.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -58,6 +59,31 @@ export const actions = {
 		});
 
 		return { saved: true };
+	},
+	startCompetition: async ({ request }) => {
+		const formData = await request.formData();
+		const matchNumber = Number(formData.get('matchNumber'));
+		if (!Number.isInteger(matchNumber) || matchNumber < 1 || matchNumber > 3) {
+			return fail(400, { startIssue: '試合番号が正しくありません。' });
+		}
+		if (getMatchResults().some((result) => result.matchNumber === matchNumber)) {
+			return fail(409, { startIssue: `第${matchNumber}試合はすでに終了しています。` });
+		}
+
+		const result = requestCompetitionStart(matchNumber);
+		if (!result.started) {
+			const message =
+				result.reason === 'not_ready'
+					? `第${matchNumber}試合は全員の接続・準備が完了していません。`
+					: result.reason === 'invalid_status'
+						? `第${matchNumber}試合はすでに開始されています。`
+						: result.reason === 'assignments_incomplete'
+							? `第${matchNumber}試合の割り当てが不足しています。`
+							: `第${matchNumber}試合の選手端末が接続されていません。`;
+			return fail(409, { startIssue: message });
+		}
+
+		return { started: true, startedMatchNumber: matchNumber };
 	},
 	confirmResults: async ({ request }) => {
 		const formData = await request.formData();

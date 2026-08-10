@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { WebSocket } from 'ws';
+import { registerCompetitionController } from './competition-controls.js';
 import {
 	addResultSubscriber,
 	publishResultNotification,
@@ -30,10 +31,19 @@ const mainPresets = new Map(
 export function createCompetitionManager() {
 	const rooms = new Map();
 	const connections = new WeakMap();
+	const adminSubscribers = new Set();
 
-	return {
+	const manager = {
 		/** @param {WebSocket} webSocket @param {any} message */
 		handle(webSocket, message) {
+			if (message.type === 'admin.subscribe') {
+				leaveCurrentConnection(webSocket);
+				adminSubscribers.add(webSocket);
+				connections.set(webSocket, { role: 'admin' });
+				sendAdminStatus(webSocket);
+				return true;
+			}
+
 			if (message.type === 'results.subscribe') {
 				leaveCurrentConnection(webSocket);
 				addResultSubscriber(webSocket);
@@ -68,12 +78,12 @@ export function createCompetitionManager() {
 				lane.webSocket = webSocket;
 				lane.connected = true;
 				connections.set(webSocket, { role: 'player', room, lane });
-				startWhenReady(room);
 				send(webSocket, {
 					type: 'typing.joined',
 					data: { matchNumber: room.matchNumber, laneNumber: lane.laneNumber }
 				});
 				broadcastSnapshot(room);
+				broadcastAdminStatus();
 				return true;
 			}
 
@@ -81,8 +91,8 @@ export function createCompetitionManager() {
 			if (message.type === 'typing.ready') {
 				if (connection?.role !== 'player' || connection.room.status !== 'waiting') return true;
 				connection.lane.ready = true;
-				startWhenReady(connection.room);
 				broadcastSnapshot(connection.room);
+				broadcastAdminStatus();
 				return true;
 			}
 
@@ -112,8 +122,17 @@ export function createCompetitionManager() {
 		/** @param {WebSocket} webSocket */
 		disconnect(webSocket) {
 			leaveCurrentConnection(webSocket);
+		},
+
+		/** @param {number} matchNumber */
+		start(matchNumber) {
+			const room = rooms.get(matchNumber);
+			if (!room) return { started: false, reason: 'room_not_initialized' };
+			return startRoom(room);
 		}
 	};
+	registerCompetitionController(manager);
+	return manager;
 
 	/** @param {number} matchNumber */
 	function roomFor(matchNumber) {
@@ -136,6 +155,7 @@ export function createCompetitionManager() {
 			endsAt: null,
 			ticker: null,
 			monitors: new Set(),
+			notifyAdmin: broadcastAdminStatus,
 			lanes: new Map(
 				assignments.map((assignment) => [
 					assignment.laneNumber,
@@ -167,6 +187,10 @@ export function createCompetitionManager() {
 			removeResultSubscriber(webSocket);
 			return;
 		}
+		if (connection.role === 'admin') {
+			adminSubscribers.delete(webSocket);
+			return;
+		}
 
 		if (connection.lane.webSocket !== webSocket) return;
 		connection.lane.webSocket = null;
@@ -179,24 +203,67 @@ export function createCompetitionManager() {
 			stopTicker(connection.room);
 		}
 		broadcastSnapshot(connection.room);
+		broadcastAdminStatus();
+	}
+
+	/** @param {WebSocket} webSocket */
+	function sendAdminStatus(webSocket) {
+		send(webSocket, createAdminStatusMessage(rooms));
+	}
+
+	function broadcastAdminStatus() {
+		const message = createAdminStatusMessage(rooms);
+		for (const subscriber of adminSubscribers) send(subscriber, message);
 	}
 }
 
 /** @param {any} room */
-function startWhenReady(room) {
-	if (room.lanes.size !== 6) return;
-	if (![...room.lanes.values()].every((lane) => lane.connected && lane.ready)) return;
+function startRoom(room) {
+	if (room.status !== 'waiting') {
+		return { started: false, reason: 'invalid_status', status: room.status };
+	}
+	if (room.lanes.size !== 6) return { started: false, reason: 'assignments_incomplete' };
+	const lanes = [...room.lanes.values()];
+	const connectedCount = lanes.filter((lane) => lane.connected).length;
+	const readyCount = lanes.filter((lane) => lane.ready).length;
+	if (connectedCount !== 6 || readyCount !== 6) {
+		return { started: false, reason: 'not_ready', connectedCount, readyCount };
+	}
 
 	room.status = 'countdown';
 	room.startsAt = Date.now() + countdownMilliseconds;
 	room.endsAt = room.startsAt + durationSeconds * 1_000;
 	room.ticker = setInterval(() => {
 		const now = Date.now();
+		const previousStatus = room.status;
 		if (room.status === 'countdown' && now >= room.startsAt) room.status = 'running';
 		if (room.status === 'running' && now >= room.endsAt) finishRoom(room);
 		else broadcastSnapshot(room);
+		if (room.status !== previousStatus) room.notifyAdmin();
 	}, 250);
 	room.ticker.unref();
+	broadcastSnapshot(room);
+	room.notifyAdmin();
+	return { started: true };
+}
+
+/** @param {Map<number, any>} rooms */
+function createAdminStatusMessage(rooms) {
+	return {
+		type: 'competition.admin-status',
+		data: {
+			matches: [1, 2, 3].map((matchNumber) => {
+				const room = rooms.get(matchNumber);
+				const lanes = room ? [...room.lanes.values()] : [];
+				return {
+					matchNumber,
+					status: room?.status ?? 'waiting',
+					connectedCount: lanes.filter((lane) => lane.connected).length,
+					readyCount: lanes.filter((lane) => lane.ready).length
+				};
+			})
+		}
+	};
 }
 
 /** @param {any} room */
@@ -210,6 +277,7 @@ function finishRoom(room) {
 		console.error(`Failed to persist results for match ${room.matchNumber}`, error);
 	}
 	broadcastSnapshot(room);
+	room.notifyAdmin();
 	publishResultNotification({
 		type: 'competition.finished',
 		data: { matchNumber: room.matchNumber }
