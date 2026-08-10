@@ -30,6 +30,40 @@
 
 独自タイピングシステムは単体で大会準備、競技進行、結果確定までを行います。3試合終了後、仕様に従った確定結果JSONを出力し、SportEaseへ取り込みます。
 
+## 開発環境
+
+Node.js 24とDocker Composeに対応しています。
+
+```bash
+npm install
+npm run dev
+```
+
+ローカル開発サーバーは`http://localhost:5173`で起動します。
+
+Dockerを使う場合は次のコマンドで起動します。
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+## 本番環境
+
+```bash
+docker compose -f docker-compose.production.yml up -d --build
+```
+
+本番サーバーは`http://localhost:3000`で起動します。SQLiteデータはComposeの`production_data`ボリュームへ保存されます。
+
+主な確認コマンドは次のとおりです。
+
+```bash
+npm run check
+npm run lint
+npm run test:unit -- --run
+npm run test:e2e
+```
+
 ## License
 
 [MIT License](./LICENSE)
