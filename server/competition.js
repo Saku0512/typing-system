@@ -25,10 +25,18 @@ const mainPresets = new Map(
 export function createCompetitionManager() {
 	const rooms = new Map();
 	const connections = new WeakMap();
+	const resultSubscribers = new Set();
 
 	return {
 		/** @param {WebSocket} webSocket @param {any} message */
 		handle(webSocket, message) {
+			if (message.type === 'results.subscribe') {
+				leaveCurrentConnection(webSocket);
+				resultSubscribers.add(webSocket);
+				connections.set(webSocket, { role: 'results' });
+				return true;
+			}
+
 			if (message.type === 'monitor.subscribe') {
 				leaveCurrentConnection(webSocket);
 				const room = roomFor(message.data.matchNumber);
@@ -124,6 +132,7 @@ export function createCompetitionManager() {
 			endsAt: null,
 			ticker: null,
 			monitors: new Set(),
+			resultSubscribers,
 			lanes: new Map(
 				assignments.map((assignment) => [
 					assignment.laneNumber,
@@ -149,6 +158,10 @@ export function createCompetitionManager() {
 
 		if (connection.role === 'monitor') {
 			connection.room.monitors.delete(webSocket);
+			return;
+		}
+		if (connection.role === 'results') {
+			resultSubscribers.delete(webSocket);
 			return;
 		}
 
@@ -188,7 +201,72 @@ function finishRoom(room) {
 	if (room.status === 'finished') return;
 	room.status = 'finished';
 	stopTicker(room);
+	try {
+		persistRoomResults(room);
+	} catch (error) {
+		console.error(`Failed to persist results for match ${room.matchNumber}`, error);
+	}
 	broadcastSnapshot(room);
+	for (const subscriber of room.resultSubscribers) {
+		send(subscriber, { type: 'competition.finished', data: { matchNumber: room.matchNumber } });
+	}
+}
+
+/** @param {any} room */
+function persistRoomResults(room) {
+	const databasePath = process.env.DATABASE_URL ?? 'data/typing-system.db';
+	const database = new Database(databasePath);
+	database.pragma('busy_timeout = 5000');
+	try {
+		saveMatchResults(database, createRoomSnapshot(room), room.endsAt ?? Date.now());
+	} finally {
+		database.close();
+	}
+}
+
+/**
+ * @param {import('better-sqlite3').Database} database
+ * @param {ReturnType<typeof createRoomSnapshot>} snapshot
+ * @param {number} finishedAt
+ */
+export function saveMatchResults(database, snapshot, finishedAt) {
+	const removePreviousResults = database.prepare(
+		'delete from match_results where match_number = ?'
+	);
+	const insertResult = database.prepare(`
+		insert into match_results (
+			match_number, lane_number, team_name, representative_source,
+			correct_types, incorrect_types, completed_problems,
+			wpm, accuracy, raw_score, score, rank,
+			problem_set_id, problem_set_version, finished_at
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`);
+
+	const replaceResults = database.transaction(() => {
+		removePreviousResults.run(snapshot.matchNumber);
+		for (const lane of snapshot.lanes) {
+			if (lane.rank === null) throw new Error('A finished result must have a rank');
+			insertResult.run(
+				snapshot.matchNumber,
+				lane.laneNumber,
+				lane.teamName,
+				lane.representativeSource,
+				lane.correctTypes,
+				lane.incorrectTypes,
+				lane.completedProblems,
+				lane.wpm,
+				lane.accuracy,
+				lane.rawScore,
+				lane.score,
+				lane.rank,
+				snapshot.problemSetId,
+				snapshot.problemSetVersion,
+				finishedAt
+			);
+		}
+	});
+
+	replaceResults();
 }
 
 /** @param {any} room */
@@ -326,7 +404,8 @@ function createLaneSnapshot(room, lane, now) {
 	const attempts = view.correctTypes + view.incorrectTypes;
 	const accuracy = attempts === 0 ? 0 : view.correctTypes / attempts;
 	const wpm = elapsedSeconds === 0 ? 0 : (view.correctTypes / elapsedSeconds) * 60;
-	const score = calculateScore(view.correctTypes, view.incorrectTypes);
+	const rawScore = calculateRawScore(view.correctTypes, view.incorrectTypes);
+	const score = Math.floor(rawScore);
 	const currentLength = Math.max(view.romanizedText.length, 1);
 	const progress =
 		((view.problemIndex + Math.min(1, view.inputPosition / currentLength)) / view.problemCount) *
@@ -342,16 +421,17 @@ function createLaneSnapshot(room, lane, now) {
 		...view,
 		accuracy,
 		wpm,
+		rawScore,
 		score,
 		progress
 	};
 }
 
 /** @param {number} correctTypes @param {number} incorrectTypes */
-function calculateScore(correctTypes, incorrectTypes) {
+function calculateRawScore(correctTypes, incorrectTypes) {
 	const attempts = correctTypes + incorrectTypes;
 	if (attempts === 0) return 0;
-	return Math.floor((60 * correctTypes ** 4) / (durationSeconds * attempts ** 3));
+	return (60 * correctTypes ** 4) / (durationSeconds * attempts ** 3);
 }
 
 /** @param {any} room @param {any} lane */

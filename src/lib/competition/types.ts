@@ -21,6 +21,7 @@ export type LaneSnapshot = {
 	completedProblems: number;
 	accuracy: number;
 	wpm: number;
+	rawScore: number;
 	score: number;
 	progress: number;
 	rank: number | null;
@@ -42,6 +43,7 @@ export type CompetitionSnapshot = {
 
 export type CompetitionServerMessage =
 	| { type: 'competition.snapshot'; data: CompetitionSnapshot }
+	| { type: 'competition.finished'; data: { matchNumber: number } }
 	| { type: 'typing.joined'; data: { matchNumber: number; laneNumber: number } }
 	| {
 			type: 'typing.input-result';

@@ -1,7 +1,37 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import PublicHeader from '$lib/components/PublicHeader.svelte';
+	import { webSocketUrl, type CompetitionServerMessage } from '$lib/competition/types';
+	import { onMount } from 'svelte';
 
 	let { data } = $props();
+
+	onMount(() => {
+		let stopped = false;
+		let socket: WebSocket | null = null;
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+		const connect = () => {
+			socket = new WebSocket(webSocketUrl());
+			socket.addEventListener('open', () => {
+				socket?.send(JSON.stringify({ type: 'results.subscribe' }));
+			});
+			socket.addEventListener('message', (event) => {
+				const message = JSON.parse(event.data) as CompetitionServerMessage;
+				if (message.type === 'competition.finished') void invalidateAll();
+			});
+			socket.addEventListener('close', () => {
+				if (!stopped) reconnectTimer = setTimeout(connect, 1_000);
+			});
+		};
+
+		connect();
+		return () => {
+			stopped = true;
+			if (reconnectTimer) clearTimeout(reconnectTimer);
+			socket?.close();
+		};
+	});
 </script>
 
 <svelte:head>
@@ -43,19 +73,32 @@
 		{#if data.assignments.length > 0}
 			<div class="match-schedule">
 				{#each [1, 2, 3] as matchNumber (matchNumber)}
+					{@const matchResults = data.results.filter(
+						(result) => result.matchNumber === matchNumber
+					)}
 					<section class="scheduled-match" aria-labelledby={`public-match-${matchNumber}-heading`}>
-						<h3 id={`public-match-${matchNumber}-heading`}>第{matchNumber}試合</h3>
+						<div class="match-heading">
+							<h3 id={`public-match-${matchNumber}-heading`}>第{matchNumber}試合</h3>
+							{#if matchResults.length === 6}<span>終了</span>{/if}
+						</div>
 						<div class="lane-table">
 							<div class="lane-row lane-header" aria-hidden="true">
 								<span>レーン</span>
 								<span>チーム</span>
 								<span>出場クラス</span>
+								<span>スコア</span>
+								<span>順位</span>
 							</div>
 							{#each data.assignments.filter((assignment) => assignment.matchNumber === matchNumber) as assignment (`${assignment.matchNumber}-${assignment.teamName}`)}
+								{@const result = matchResults.find(
+									(matchResult) => matchResult.laneNumber === assignment.laneNumber
+								)}
 								<div class="lane-row">
 									<strong class="lane-number">{assignment.laneNumber}</strong>
 									<span>{assignment.teamName}</span>
 									<code>{assignment.representativeSource}</code>
+									<strong class="lane-score">{result ? result.score.toLocaleString() : '-'}</strong>
+									<strong class="lane-rank">{result ? `${result.rank}位` : '-'}</strong>
 								</div>
 							{/each}
 						</div>
@@ -68,4 +111,40 @@
 			</div>
 		{/if}
 	</section>
+
+	{#if data.teamStandings.length > 0}
+		<section aria-labelledby="overall-heading">
+			<p class="eyebrow">OVERALL</p>
+			<h2 id="overall-heading">総合順位</h2>
+
+			<div class="overall-table">
+				<div class="overall-row overall-header" aria-hidden="true">
+					<span>順位</span>
+					<span>チーム</span>
+					<span>第1試合</span>
+					<span>第2試合</span>
+					<span>第3試合</span>
+					<span>合計</span>
+				</div>
+				{#each data.teamStandings as standing (standing.teamName)}
+					<div class="overall-row">
+						<strong class="overall-rank">{standing.rank}位</strong>
+						<strong class="overall-team">{standing.teamName}</strong>
+						<span class="overall-match-score"
+							><small>第1試合</small>{standing.matchScores[0].toLocaleString()}</span
+						>
+						<span class="overall-match-score"
+							><small>第2試合</small>{standing.matchScores[1].toLocaleString()}</span
+						>
+						<span class="overall-match-score"
+							><small>第3試合</small>{standing.matchScores[2].toLocaleString()}</span
+						>
+						<strong class="overall-total"
+							><small>合計</small>{standing.totalScore.toLocaleString()}</strong
+						>
+					</div>
+				{/each}
+			</div>
+		</section>
+	{/if}
 </main>

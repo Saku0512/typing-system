@@ -1,5 +1,6 @@
+import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { createIndividualRanks, publishedRank } from './competition.js';
+import { createIndividualRanks, publishedRank, saveMatchResults } from './competition.js';
 
 type Result = {
 	laneNumber: number;
@@ -55,5 +56,63 @@ describe('individual competition ranking', () => {
 				{ laneNumber: 3, score: 50, correctTypes: 150, incorrectTypes: 0 }
 			])
 		).toEqual([1, 1, 3]);
+	});
+});
+
+describe('finished competition results', () => {
+	it('replaces the saved results for a match atomically', () => {
+		const database = new Database(':memory:');
+		database.exec(`
+			create table match_results (
+				match_number integer not null,
+				lane_number integer not null,
+				team_name text not null,
+				representative_source text not null,
+				correct_types integer not null,
+				incorrect_types integer not null,
+				completed_problems integer not null,
+				wpm real not null,
+				accuracy real not null,
+				raw_score real not null,
+				score integer not null,
+				rank integer not null,
+				problem_set_id text not null,
+				problem_set_version integer not null,
+				finished_at integer not null,
+				primary key (match_number, lane_number)
+			)
+		`);
+
+		const result = (laneNumber: number, rank: number, score: number) => ({
+			laneNumber,
+			teamName: `${laneNumber}年生`,
+			representativeSource: `IS${laneNumber}`,
+			correctTypes: score,
+			incorrectTypes: 0,
+			completedProblems: 1,
+			wpm: score / 3,
+			accuracy: 1,
+			rawScore: score + 0.5,
+			score,
+			rank
+		});
+		const snapshot = (lanes: ReturnType<typeof result>[]) => ({
+			matchNumber: 1,
+			problemSetId: 'match-1-main-v1',
+			problemSetVersion: 1,
+			lanes
+		});
+
+		saveMatchResults(database, snapshot([result(1, 1, 120), result(2, 1, 120)]), 1_000);
+		saveMatchResults(database, snapshot([result(2, 1, 130)]), 2_000);
+
+		expect(
+			database
+				.prepare(
+					'select lane_number as laneNumber, rank, score, finished_at as finishedAt from match_results'
+				)
+				.all()
+		).toEqual([{ laneNumber: 2, rank: 1, score: 130, finishedAt: 2_000 }]);
+		database.close();
 	});
 });

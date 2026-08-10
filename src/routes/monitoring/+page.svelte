@@ -111,6 +111,7 @@
 			completedProblems: 0,
 			accuracy: 0,
 			wpm: 0,
+			rawScore: 0,
 			score: 0,
 			progress: 0,
 			rank: null
