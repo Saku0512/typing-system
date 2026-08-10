@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
-
 	let { data } = $props();
 </script>
 
@@ -67,13 +65,9 @@
 					</section>
 				{/each}
 			</div>
-			<div class="schedule-actions">
-				<a class="button-link" href={resolve('/admin')}>設定を変更</a>
-			</div>
 		{:else}
 			<div class="empty-state">
-				<p>各チームの出場順を設定すると、ここにレーン情報が表示されます。</p>
-				<a class="button-link" href={resolve('/admin')}>試合を設定</a>
+				<p>試合情報はまだ設定されていません。</p>
 			</div>
 		{/if}
 	</section>

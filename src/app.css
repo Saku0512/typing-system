@@ -176,13 +176,6 @@ code {
 	justify-self: start;
 }
 
-.schedule-actions {
-	display: flex;
-	justify-content: flex-end;
-	margin-top: 18px;
-}
-
-.button-link,
 button {
 	display: inline-flex;
 	align-items: center;
