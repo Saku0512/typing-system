@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import PublicHeader from '$lib/components/PublicHeader.svelte';
 	import {
 		webSocketUrl,
@@ -23,6 +23,7 @@
 	let connectionAttempt = 0;
 	let stopped = false;
 	let shouldReconnect = false;
+	const terminalStorageKey = 'typing-system:competition-terminal';
 
 	let availableAssignments = $derived(
 		data.assignments.filter((candidate) => candidate.matchNumber === selectedMatch)
@@ -51,6 +52,26 @@
 
 	onMount(() => {
 		const clock = setInterval(() => (now = Date.now()), 100);
+		const storedTerminal = readStoredTerminal();
+		if (
+			storedTerminal &&
+			data.assignments.some(
+				(assignment) =>
+					assignment.matchNumber === storedTerminal.matchNumber &&
+					assignment.representativeSource === storedTerminal.representativeSource
+			)
+		) {
+			selectedMatch = storedTerminal.matchNumber;
+			selectedClass = storedTerminal.representativeSource;
+			if (storedTerminal.connected) {
+				void tick().then(() => {
+					if (!stopped && assignment) {
+						shouldReconnect = true;
+						openSocket();
+					}
+				});
+			}
+		}
 		return () => {
 			stopped = true;
 			shouldReconnect = false;
@@ -69,11 +90,14 @@
 		shouldReconnect = false;
 		webSocket?.close();
 		shouldReconnect = true;
+		writeStoredTerminal(true);
 		openSocket();
 	}
 
 	function openSocket() {
 		const attempt = ++connectionAttempt;
+		const matchNumber = selectedMatch;
+		const laneNumber = selectedLane;
 		connectionState = 'connecting';
 		errorMessage = '';
 		const socket = new WebSocket(webSocketUrl());
@@ -84,7 +108,7 @@
 			socket.send(
 				JSON.stringify({
 					type: 'typing.join',
-					data: { matchNumber: selectedMatch, laneNumber: selectedLane }
+					data: { matchNumber, laneNumber }
 				})
 			);
 		});
@@ -105,6 +129,7 @@
 						: '競技端末を接続できませんでした。';
 				if (message.data.code === 'lane_reconnected') {
 					shouldReconnect = false;
+					writeStoredTerminal(false);
 					socket.close();
 				}
 			}
@@ -119,6 +144,66 @@
 	function ready() {
 		if (webSocket?.readyState !== WebSocket.OPEN) return;
 		webSocket.send(JSON.stringify({ type: 'typing.ready' }));
+	}
+
+	function changeMatch(event: Event & { currentTarget: HTMLSelectElement }) {
+		disconnectTerminal();
+		selectedMatch = Number(event.currentTarget.value);
+		selectedClass = '';
+		writeStoredTerminal(false);
+	}
+
+	function changeClass(event: Event & { currentTarget: HTMLSelectElement }) {
+		disconnectTerminal();
+		selectedClass = event.currentTarget.value;
+		writeStoredTerminal(false);
+	}
+
+	function disconnectTerminal() {
+		shouldReconnect = false;
+		connectionAttempt += 1;
+		webSocket?.close();
+		webSocket = null;
+		snapshot = null;
+		connectionState = 'idle';
+		errorMessage = '';
+	}
+
+	function writeStoredTerminal(connected: boolean) {
+		const representativeSource = effectiveSelectedClass;
+		if (!representativeSource) return;
+		sessionStorage.setItem(
+			terminalStorageKey,
+			JSON.stringify({ matchNumber: selectedMatch, representativeSource, connected })
+		);
+	}
+
+	function readStoredTerminal(): {
+		matchNumber: number;
+		representativeSource: string;
+		connected: boolean;
+	} | null {
+		try {
+			const value = JSON.parse(sessionStorage.getItem(terminalStorageKey) ?? 'null') as unknown;
+			if (!value || typeof value !== 'object') return null;
+			const stored = value as Record<string, unknown>;
+			if (
+				!Number.isInteger(stored.matchNumber) ||
+				Number(stored.matchNumber) < 1 ||
+				Number(stored.matchNumber) > 3 ||
+				typeof stored.representativeSource !== 'string' ||
+				typeof stored.connected !== 'boolean'
+			) {
+				return null;
+			}
+			return {
+				matchNumber: Number(stored.matchNumber),
+				representativeSource: stored.representativeSource,
+				connected: stored.connected
+			};
+		} catch {
+			return null;
+		}
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -181,7 +266,7 @@
 		</div>
 		<label>
 			<span>試合</span>
-			<select bind:value={selectedMatch} disabled={selectionLocked}>
+			<select value={selectedMatch} disabled={selectionLocked} onchange={changeMatch}>
 				{#each [1, 2, 3] as matchNumber (matchNumber)}<option value={matchNumber}
 						>第{matchNumber}試合</option
 					>{/each}
@@ -189,11 +274,7 @@
 		</label>
 		<label>
 			<span>出場クラス</span>
-			<select
-				value={effectiveSelectedClass}
-				disabled={selectionLocked}
-				onchange={(event) => (selectedClass = event.currentTarget.value)}
-			>
+			<select value={effectiveSelectedClass} disabled={selectionLocked} onchange={changeClass}>
 				{#each availableAssignments as candidate (`${candidate.matchNumber}-${candidate.representativeSource}`)}<option
 						value={candidate.representativeSource}
 						>{candidate.representativeSource}（{candidate.teamName}）</option

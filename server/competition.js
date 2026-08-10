@@ -56,6 +56,7 @@ export function createCompetitionManager() {
 				lane.webSocket = webSocket;
 				lane.connected = true;
 				connections.set(webSocket, { role: 'player', room, lane });
+				startWhenReady(room);
 				send(webSocket, {
 					type: 'typing.joined',
 					data: { matchNumber: room.matchNumber, laneNumber: lane.laneNumber }
@@ -154,7 +155,6 @@ export function createCompetitionManager() {
 		if (connection.lane.webSocket !== webSocket) return;
 		connection.lane.webSocket = null;
 		connection.lane.connected = false;
-		if (connection.room.status === 'waiting') connection.lane.ready = false;
 		if (connection.room.status === 'countdown' && Date.now() < connection.room.startsAt) {
 			connection.room.status = 'waiting';
 			connection.room.startsAt = null;

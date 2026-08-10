@@ -62,30 +62,43 @@ test('protects the admin screen and saves valid assignments', async ({ browser, 
 });
 
 test('synchronizes six competition terminals with monitoring', async ({ browser }) => {
-	const context = await browser.newContext();
-	const monitor = await context.newPage();
+	const monitorContext = await browser.newContext();
+	const monitor = await monitorContext.newPage();
 	await monitor.goto('/monitoring');
 	const navigation = monitor.getByRole('navigation', { name: 'メインナビゲーション' });
 	await expect(navigation).toContainText('モニタリング');
 	await expect(navigation).toContainText('競技');
 
 	const terminals = [];
+	const terminalContexts = [];
 	for (const representativeSource of ['1-1', 'IS2', 'IS3', 'IS4', 'IS5', '専教']) {
-		const terminal = await context.newPage();
+		const terminalContext = await browser.newContext();
+		terminalContexts.push(terminalContext);
+		const terminal = await terminalContext.newPage();
 		terminals.push(terminal);
 		await terminal.goto('/competition');
 		await terminal.getByLabel('出場クラス').selectOption(representativeSource);
 		await terminal.getByRole('button', { name: '端末を接続' }).click();
 		await terminal.getByRole('button', { name: '準備完了' }).click();
+		if (representativeSource === '1-1') {
+			await terminal.reload();
+			await expect(terminal.getByLabel('出場クラス')).toHaveValue('1-1');
+			await expect(terminal.getByText('全員の準備を待っています')).toBeVisible();
+		}
 	}
 
 	await expect(monitor.getByText('6/6 準備')).toBeVisible();
 	await expect(terminals[0].getByText('競技中', { exact: true })).toBeVisible({ timeout: 6_000 });
+	await terminals[1].reload();
+	await expect(terminals[1].getByLabel('出場クラス')).toHaveValue('IS2');
+	await expect(terminals[1].getByRole('heading', { name: /2年生/ })).toBeVisible();
+	await expect(terminals[1].getByText('競技中', { exact: true })).toBeVisible();
 	await terminals[0].getByLabel('タイピング入力').pressSequentially('aozora');
 
 	const firstLane = monitor.getByRole('region', { name: 'レーン1 1年生' });
 	await expect(firstLane.getByText('靴音')).toBeVisible();
 	await expect(firstLane.locator('.monitor-metrics dd').first()).toHaveText('6');
 
-	await context.close();
+	for (const terminalContext of terminalContexts) await terminalContext.close();
+	await monitorContext.close();
 });
