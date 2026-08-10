@@ -70,11 +70,11 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	await expect(navigation).toContainText('競技');
 
 	const terminals = [];
-	for (const laneNumber of [1, 2, 3, 4, 5, 6]) {
+	for (const representativeSource of ['1-1', 'IS2', 'IS3', 'IS4', 'IS5', '専教']) {
 		const terminal = await context.newPage();
 		terminals.push(terminal);
 		await terminal.goto('/competition');
-		await terminal.getByLabel('レーン').selectOption(String(laneNumber));
+		await terminal.getByLabel('出場クラス').selectOption(representativeSource);
 		await terminal.getByRole('button', { name: '端末を接続' }).click();
 		await terminal.getByRole('button', { name: '準備完了' }).click();
 	}

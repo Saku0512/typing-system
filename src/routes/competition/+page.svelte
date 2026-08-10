@@ -10,7 +10,7 @@
 
 	let { data } = $props();
 	let selectedMatch = $state(1);
-	let selectedLane = $state(1);
+	let selectedClass = $state('');
 	let snapshot = $state<CompetitionSnapshot | null>(null);
 	let connectionState = $state<'idle' | 'connecting' | 'connected' | 'error'>('idle');
 	let errorMessage = $state('');
@@ -24,12 +24,22 @@
 	let stopped = false;
 	let shouldReconnect = false;
 
+	let availableAssignments = $derived(
+		data.assignments.filter((candidate) => candidate.matchNumber === selectedMatch)
+	);
+	let effectiveSelectedClass = $derived(
+		availableAssignments.some((candidate) => candidate.representativeSource === selectedClass)
+			? selectedClass
+			: (availableAssignments[0]?.representativeSource ?? '')
+	);
 	let assignment = $derived(
 		data.assignments.find(
 			(candidate) =>
-				candidate.matchNumber === selectedMatch && candidate.laneNumber === selectedLane
+				candidate.matchNumber === selectedMatch &&
+				candidate.representativeSource === effectiveSelectedClass
 		)
 	);
+	let selectedLane = $derived(assignment?.laneNumber ?? 0);
 	let ownLane = $derived<LaneSnapshot | undefined>(
 		snapshot?.matchNumber === selectedMatch
 			? snapshot.lanes.find((lane) => lane.laneNumber === selectedLane)
@@ -91,7 +101,7 @@
 				connectionState = 'error';
 				errorMessage =
 					message.data.code === 'lane_reconnected'
-						? 'このレーンは別の端末で接続されました。'
+						? 'この出場クラスは別の端末で接続されました。'
 						: '競技端末を接続できませんでした。';
 				if (message.data.code === 'lane_reconnected') {
 					shouldReconnect = false;
@@ -178,10 +188,15 @@
 			</select>
 		</label>
 		<label>
-			<span>レーン</span>
-			<select bind:value={selectedLane} disabled={selectionLocked}>
-				{#each [1, 2, 3, 4, 5, 6] as laneNumber (laneNumber)}<option value={laneNumber}
-						>{laneNumber}</option
+			<span>出場クラス</span>
+			<select
+				value={effectiveSelectedClass}
+				disabled={selectionLocked}
+				onchange={(event) => (selectedClass = event.currentTarget.value)}
+			>
+				{#each availableAssignments as candidate (`${candidate.matchNumber}-${candidate.representativeSource}`)}<option
+						value={candidate.representativeSource}
+						>{candidate.representativeSource}（{candidate.teamName}）</option
 					>{/each}
 			</select>
 		</label>
@@ -192,7 +207,7 @@
 
 	{#if !assignment}
 		<section class="empty-state">
-			<p>選択した試合のレーン情報が設定されていません。</p>
+			<p>選択した試合の出場クラス情報が設定されていません。</p>
 		</section>
 	{:else}
 		<div

@@ -587,7 +587,7 @@ select {
 
 .terminal-setup {
 	display: grid;
-	grid-template-columns: minmax(220px, 1fr) 150px 130px auto;
+	grid-template-columns: minmax(220px, 1fr) 150px minmax(220px, 260px) auto;
 	align-items: end;
 	gap: 14px;
 	padding-bottom: 16px;
@@ -862,7 +862,7 @@ select {
 	}
 
 	.terminal-setup {
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: minmax(100px, 0.65fr) minmax(0, 1.35fr);
 	}
 
 	.terminal-setup > div,
