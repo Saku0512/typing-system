@@ -4,7 +4,7 @@
 
 <svelte:head>
 	<title>{data.tournamentName} | Typing System</title>
-	<meta name="description" content={`${data.tournamentName}のタイピング競技運営画面`} />
+	<meta name="description" content={`${data.tournamentName}の競技タイピング運営画面`} />
 </svelte:head>
 
 <header class="app-header">
