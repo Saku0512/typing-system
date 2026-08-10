@@ -431,7 +431,7 @@ select {
 
 .competition-control-row {
 	display: grid;
-	grid-template-columns: minmax(140px, 1fr) 100px 70px 70px 120px;
+	grid-template-columns: minmax(155px, 1fr) 100px 70px 70px minmax(240px, 360px);
 	align-items: center;
 	gap: 16px;
 	min-height: 58px;
@@ -475,6 +475,26 @@ select {
 	border-color: #a8cfb7;
 }
 
+.competition-state[data-status='interrupted'],
+.competition-state[data-status='force_finished'],
+.competition-state[data-status='invalidated'] {
+	color: #7d2920;
+	background: #faece9;
+	border-color: #dfb5af;
+}
+
+.competition-match-label {
+	display: grid;
+	gap: 3px;
+}
+
+.competition-match-label small {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.66rem;
+	font-weight: 500;
+	color: #66706b;
+}
+
 .competition-count {
 	font-weight: 700;
 	font-variant-numeric: tabular-nums;
@@ -484,9 +504,38 @@ select {
 	display: none;
 }
 
-.competition-control-row form {
+.competition-control-row form,
+.competition-operations {
 	display: flex;
 	justify-content: flex-end;
+}
+
+.competition-operations {
+	gap: 8px;
+}
+
+.reason-operation {
+	width: 100%;
+	gap: 8px;
+}
+
+.reason-operation input,
+.disqualification-form input {
+	min-width: 0;
+	height: 38px;
+	padding: 0 10px;
+	border: 1px solid #aeb7b1;
+	border-radius: 4px;
+}
+
+.reason-operation input {
+	flex: 1;
+}
+
+.danger-button {
+	color: #fff;
+	background: #a53a30;
+	border-color: #812c25;
 }
 
 .confirmation-match {
@@ -571,6 +620,56 @@ select {
 	display: flex;
 	justify-content: flex-end;
 	margin-top: 14px;
+}
+
+.result-actions {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	margin-top: 14px;
+}
+
+.result-actions .confirmation-actions {
+	margin-top: 0;
+}
+
+.disqualification-form {
+	display: grid;
+	grid-template-columns: minmax(200px, 1fr) minmax(160px, 1fr) auto;
+	gap: 8px;
+	width: min(100%, 650px);
+}
+
+.operation-history {
+	margin-top: 56px;
+}
+
+.operation-history-table {
+	margin-top: 24px;
+	background: #fff;
+	border-top: 1px solid #cbd1cd;
+	border-bottom: 1px solid #cbd1cd;
+}
+
+.operation-history-row {
+	display: grid;
+	grid-template-columns: 150px 155px 90px 150px 70px minmax(180px, 1fr) 100px;
+	align-items: center;
+	gap: 12px;
+	min-height: 48px;
+	padding: 8px 12px;
+	border-top: 1px solid #e2e6e3;
+	font-size: 0.78rem;
+}
+
+.operation-history-row:first-child {
+	border-top: 0;
+}
+
+.operation-history-row time,
+.operation-history-row small {
+	color: #66706b;
 }
 
 .confirmation-empty {
@@ -1166,7 +1265,7 @@ select {
 		color: #66706b;
 	}
 
-	.competition-control-row form {
+	.competition-control-row > .competition-operations {
 		grid-column: 3;
 		grid-row: 1 / 3;
 	}
@@ -1174,6 +1273,29 @@ select {
 	.competition-control-row button {
 		width: 100%;
 		padding: 0 10px;
+	}
+
+	.reason-operation {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.result-actions {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.disqualification-form {
+		grid-template-columns: 1fr;
+	}
+
+	.operation-history-table {
+		overflow-x: auto;
+	}
+
+	.operation-history-row {
+		grid-template-columns: 140px 150px 80px 140px 70px minmax(170px, 1fr) 90px;
+		min-width: 900px;
 	}
 
 	.monitor-main {

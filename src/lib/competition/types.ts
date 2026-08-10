@@ -1,7 +1,22 @@
-export type CompetitionStatus = 'waiting' | 'countdown' | 'running' | 'finished';
+export type CompetitionStatus =
+	| 'waiting'
+	| 'countdown'
+	| 'running'
+	| 'finished'
+	| 'interrupted'
+	| 'force_finished'
+	| 'invalidated';
 
 export type LaneStatus =
-	'disconnected' | 'connected' | 'ready' | 'countdown' | 'running' | 'finished';
+	| 'disconnected'
+	| 'connected'
+	| 'ready'
+	| 'countdown'
+	| 'running'
+	| 'finished'
+	| 'interrupted'
+	| 'force_finished'
+	| 'invalidated';
 
 export type LaneSnapshot = {
 	laneNumber: number;
@@ -29,6 +44,7 @@ export type LaneSnapshot = {
 
 export type CompetitionSnapshot = {
 	matchNumber: number;
+	attemptNumber: number;
 	problemSetId: string;
 	problemSetVersion: number;
 	durationSeconds: number;
@@ -43,6 +59,8 @@ export type CompetitionSnapshot = {
 
 export type CompetitionAdminStatus = {
 	matchNumber: number;
+	attemptNumber: number;
+	problemSetId: string;
 	status: CompetitionStatus;
 	connectedCount: number;
 	readyCount: number;
@@ -52,6 +70,9 @@ export type CompetitionServerMessage =
 	| { type: 'competition.snapshot'; data: CompetitionSnapshot }
 	| { type: 'competition.finished'; data: { matchNumber: number } }
 	| { type: 'competition.confirmed'; data: { matchNumber: number } }
+	| { type: 'competition.invalidated'; data: { matchNumber: number } }
+	| { type: 'competition.disqualified'; data: { matchNumber: number } }
+	| { type: 'competition.retry-prepared'; data: { matchNumber: number } }
 	| { type: 'competition.admin-status'; data: { matches: CompetitionAdminStatus[] } }
 	| { type: 'typing.joined'; data: { matchNumber: number; laneNumber: number } }
 	| {

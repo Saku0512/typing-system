@@ -3,6 +3,16 @@ import Database from 'better-sqlite3';
 import { WebSocket } from 'ws';
 import { registerCompetitionController } from './competition-controls.js';
 import {
+	disqualifyLane,
+	getLatestAttempt,
+	getUsedProblemSetIds,
+	invalidateMatch,
+	prepareRetry,
+	recordAttemptStarted,
+	recordStoppedAttempt,
+	saveAttemptResults
+} from './competition-operations.js';
+import {
 	addResultSubscriber,
 	publishResultNotification,
 	removeResultSubscriber
@@ -11,7 +21,7 @@ import { applyTypingEvent, createTypingState, getTypingView } from './typing-eng
 
 /**
  * @typedef {{ problem_id: string, display_text: string, reading: string }} ProblemPresetEntry
- * @typedef {{ problem_set_id: string, version: number, role: 'main' | 'reserve', match_number?: number, problems: ProblemPresetEntry[] }} ProblemPreset
+ * @typedef {{ problem_set_id: string, version: number, role: 'main' | 'reserve', match_number?: number, reserve_priority?: number, problems: ProblemPresetEntry[] }} ProblemPreset
  * @typedef {{ laneNumber: number, teamName: string, representativeSource: string }} Assignment
  */
 
@@ -27,6 +37,10 @@ const mainPresets = new Map(
 		.filter((preset) => preset.role === 'main' && preset.match_number !== undefined)
 		.map((preset) => [preset.match_number ?? 0, preset])
 );
+const reservePresets = problemPresets.presets
+	.filter((preset) => preset.role === 'reserve')
+	.sort((left, right) => (left.reserve_priority ?? 0) - (right.reserve_priority ?? 0));
+const allPresets = new Map(problemPresets.presets.map((preset) => [preset.problem_set_id, preset]));
 
 export function createCompetitionManager() {
 	const rooms = new Map();
@@ -124,11 +138,89 @@ export function createCompetitionManager() {
 			leaveCurrentConnection(webSocket);
 		},
 
-		/** @param {number} matchNumber */
-		start(matchNumber) {
+		/** @param {number} matchNumber @param {string} operatedBy */
+		start(matchNumber, operatedBy) {
 			const room = rooms.get(matchNumber);
 			if (!room) return { started: false, reason: 'room_not_initialized' };
-			return startRoom(room);
+			return startRoom(room, operatedBy);
+		},
+
+		/** @param {import('./competition-controls.js').CompetitionOperation} operation */
+		operate(operation) {
+			const room = rooms.get(operation.matchNumber);
+			if (operation.action === 'interrupt' || operation.action === 'force_finish') {
+				if (!room) return { completed: false, reason: 'room_not_initialized' };
+				return stopCompetition(room, operation.action, operation.operatedBy, operation.reason);
+			}
+
+			const database = openDatabase();
+			try {
+				if (operation.action === 'invalidate') {
+					const result = invalidateMatch(
+						database,
+						operation.matchNumber,
+						operation.operatedBy,
+						operation.reason
+					);
+					if (!result.invalidated) return { completed: false, reason: result.reason };
+					if (room) setRoomTerminalStatus(room, 'invalidated');
+					publishResultNotification({
+						type: 'competition.invalidated',
+						data: { matchNumber: operation.matchNumber }
+					});
+					broadcastAdminStatus();
+					return { completed: true, attemptNumber: result.attemptNumber };
+				}
+
+				if (operation.action === 'retry') {
+					const usedProblemSetIds = new Set(getUsedProblemSetIds(database));
+					const preset = reservePresets.find(
+						(candidate) => !usedProblemSetIds.has(candidate.problem_set_id)
+					);
+					if (!preset) return { completed: false, reason: 'reserve_exhausted' };
+					const result = prepareRetry(
+						database,
+						operation.matchNumber,
+						{ problemSetId: preset.problem_set_id, problemSetVersion: preset.version },
+						operation.operatedBy,
+						operation.reason
+					);
+					if (!result.prepared || result.attemptNumber === undefined) {
+						return { completed: false, reason: result.reason };
+					}
+					if (room) resetRoom(room, preset, result.attemptNumber);
+					publishResultNotification({
+						type: 'competition.retry-prepared',
+						data: { matchNumber: operation.matchNumber }
+					});
+					broadcastAdminStatus();
+					return {
+						completed: true,
+						attemptNumber: result.attemptNumber,
+						problemSetId: preset.problem_set_id
+					};
+				}
+
+				if (operation.action === 'disqualify') {
+					if (!operation.laneNumber) return { completed: false, reason: 'invalid_lane' };
+					const result = disqualifyLane(
+						database,
+						operation.matchNumber,
+						operation.laneNumber,
+						operation.operatedBy,
+						operation.reason
+					);
+					if (!result.disqualified) return { completed: false, reason: result.reason };
+					publishResultNotification({
+						type: 'competition.disqualified',
+						data: { matchNumber: operation.matchNumber }
+					});
+					return { completed: true };
+				}
+			} finally {
+				database.close();
+			}
+			return { completed: false, reason: 'unsupported_operation' };
 		}
 	};
 	registerCompetitionController(manager);
@@ -139,7 +231,10 @@ export function createCompetitionManager() {
 		let room = rooms.get(matchNumber);
 		if (room) return room;
 
-		const preset = mainPresets.get(matchNumber);
+		const latestAttempt = readLatestAttempt(matchNumber);
+		const preset = latestAttempt
+			? allPresets.get(latestAttempt.problemSetId)
+			: mainPresets.get(matchNumber);
 		if (!preset) throw new Error(`Problem preset for match ${matchNumber} was not found`);
 		const problems = preset.problems.map((problem) => ({
 			displayText: problem.display_text,
@@ -148,11 +243,13 @@ export function createCompetitionManager() {
 		const assignments = loadAssignments(matchNumber);
 		room = {
 			matchNumber,
+			attemptNumber: latestAttempt?.attemptNumber ?? 1,
 			problemSetId: preset.problem_set_id,
 			problemSetVersion: preset.version,
-			status: 'waiting',
+			status: restoredRoomStatus(latestAttempt?.status),
 			startsAt: null,
 			endsAt: null,
+			startOperatedBy: null,
 			ticker: null,
 			monitors: new Set(),
 			notifyAdmin: broadcastAdminStatus,
@@ -199,6 +296,7 @@ export function createCompetitionManager() {
 			connection.room.status = 'waiting';
 			connection.room.startsAt = null;
 			connection.room.endsAt = null;
+			connection.room.startOperatedBy = null;
 			connection.lane.ready = false;
 			stopTicker(connection.room);
 		}
@@ -217,8 +315,8 @@ export function createCompetitionManager() {
 	}
 }
 
-/** @param {any} room */
-function startRoom(room) {
+/** @param {any} room @param {string} operatedBy */
+function startRoom(room, operatedBy) {
 	if (room.status !== 'waiting') {
 		return { started: false, reason: 'invalid_status', status: room.status };
 	}
@@ -233,10 +331,14 @@ function startRoom(room) {
 	room.status = 'countdown';
 	room.startsAt = Date.now() + countdownMilliseconds;
 	room.endsAt = room.startsAt + durationSeconds * 1_000;
+	room.startOperatedBy = operatedBy;
 	room.ticker = setInterval(() => {
 		const now = Date.now();
 		const previousStatus = room.status;
-		if (room.status === 'countdown' && now >= room.startsAt) room.status = 'running';
+		if (room.status === 'countdown' && now >= room.startsAt) {
+			room.status = 'running';
+			persistAttemptStart(room);
+		}
 		if (room.status === 'running' && now >= room.endsAt) finishRoom(room);
 		else broadcastSnapshot(room);
 		if (room.status !== previousStatus) room.notifyAdmin();
@@ -254,10 +356,17 @@ function createAdminStatusMessage(rooms) {
 		data: {
 			matches: [1, 2, 3].map((matchNumber) => {
 				const room = rooms.get(matchNumber);
+				const latestAttempt = room ? undefined : readLatestAttempt(matchNumber);
 				const lanes = room ? [...room.lanes.values()] : [];
 				return {
 					matchNumber,
-					status: room?.status ?? 'waiting',
+					attemptNumber: room?.attemptNumber ?? latestAttempt?.attemptNumber ?? 1,
+					problemSetId:
+						room?.problemSetId ??
+						latestAttempt?.problemSetId ??
+						mainPresets.get(matchNumber)?.problem_set_id ??
+						'',
+					status: room?.status ?? restoredRoomStatus(latestAttempt?.status),
 					connectedCount: lanes.filter((lane) => lane.connected).length,
 					readyCount: lanes.filter((lane) => lane.ready).length
 				};
@@ -284,13 +393,146 @@ function finishRoom(room) {
 	});
 }
 
+/**
+ * @param {any} room
+ * @param {'interrupt' | 'force_finish'} action
+ * @param {string} operatedBy
+ * @param {string} reason
+ */
+function stopCompetition(room, action, operatedBy, reason) {
+	if (room.status !== 'countdown' && room.status !== 'running') {
+		return { completed: false, reason: 'invalid_status' };
+	}
+	const status = action === 'interrupt' ? 'interrupted' : 'force_finished';
+	const statusBefore = room.status;
+	stopTicker(room);
+	room.status = status;
+	room.endsAt = Date.now();
+	const snapshot = createRoomSnapshot(room);
+	const database = openDatabase();
+	try {
+		recordStoppedAttempt(
+			database,
+			snapshot,
+			room.attemptNumber,
+			status,
+			statusBefore,
+			operatedBy,
+			reason
+		);
+	} finally {
+		database.close();
+	}
+	broadcastSnapshot(room);
+	room.notifyAdmin();
+	return { completed: true, attemptNumber: room.attemptNumber };
+}
+
+/** @param {any} room @param {'invalidated'} status */
+function setRoomTerminalStatus(room, status) {
+	stopTicker(room);
+	room.status = status;
+	room.endsAt ??= Date.now();
+	broadcastSnapshot(room);
+	room.notifyAdmin();
+}
+
+/** @param {any} room @param {ProblemPreset} preset @param {number} attemptNumber */
+function resetRoom(room, preset, attemptNumber) {
+	stopTicker(room);
+	const problems = preset.problems.map((problem) => ({
+		displayText: problem.display_text,
+		reading: problem.reading
+	}));
+	room.attemptNumber = attemptNumber;
+	room.problemSetId = preset.problem_set_id;
+	room.problemSetVersion = preset.version;
+	room.status = 'waiting';
+	room.startsAt = null;
+	room.endsAt = null;
+	room.startOperatedBy = null;
+	for (const lane of room.lanes.values()) {
+		lane.ready = false;
+		lane.typingState = createTypingState(problems);
+	}
+	broadcastSnapshot(room);
+	room.notifyAdmin();
+}
+
+function openDatabase() {
+	const databasePath = process.env.DATABASE_URL ?? 'data/typing-system.db';
+	const database = new Database(databasePath);
+	database.pragma('busy_timeout = 5000');
+	return database;
+}
+
+/** @param {any} room */
+function persistAttemptStart(room) {
+	const database = openDatabase();
+	try {
+		recordAttemptStarted(
+			database,
+			{
+				matchNumber: room.matchNumber,
+				attemptNumber: room.attemptNumber,
+				problemSetId: room.problemSetId,
+				problemSetVersion: room.problemSetVersion,
+				startsAt: room.startsAt
+			},
+			room.startOperatedBy ?? 'system'
+		);
+	} catch (error) {
+		console.error(`Failed to record start for match ${room.matchNumber}`, error);
+	} finally {
+		database.close();
+	}
+}
+
+/** @param {number} matchNumber */
+function readLatestAttempt(matchNumber) {
+	let database;
+	try {
+		database = openDatabase();
+		return getLatestAttempt(database, matchNumber);
+	} catch (error) {
+		const code = /** @type {{ code?: string }} */ (error).code;
+		if (code === 'SQLITE_CANTOPEN' || code === 'SQLITE_ERROR') return undefined;
+		throw error;
+	} finally {
+		database?.close();
+	}
+}
+
+/** @param {string | undefined} status */
+function restoredRoomStatus(status) {
+	if (status === 'retry_waiting') return 'waiting';
+	if (
+		status === 'finished' ||
+		status === 'confirmed' ||
+		status === 'running' ||
+		status === 'interrupted' ||
+		status === 'force_finished' ||
+		status === 'invalidated'
+	) {
+		if (status === 'running') return 'interrupted';
+		if (status === 'confirmed') return 'finished';
+		return status;
+	}
+	return 'waiting';
+}
+
 /** @param {any} room */
 function persistRoomResults(room) {
 	const databasePath = process.env.DATABASE_URL ?? 'data/typing-system.db';
 	const database = new Database(databasePath);
 	database.pragma('busy_timeout = 5000');
 	try {
-		saveMatchResults(database, createRoomSnapshot(room), room.endsAt ?? Date.now());
+		saveMatchResults(
+			database,
+			createRoomSnapshot(room),
+			room.endsAt ?? Date.now(),
+			room.attemptNumber
+		);
 	} finally {
 		database.close();
 	}
@@ -300,8 +542,9 @@ function persistRoomResults(room) {
  * @param {import('better-sqlite3').Database} database
  * @param {ReturnType<typeof createRoomSnapshot>} snapshot
  * @param {number} finishedAt
+ * @param {number} attemptNumber
  */
-export function saveMatchResults(database, snapshot, finishedAt) {
+export function saveMatchResults(database, snapshot, finishedAt, attemptNumber = 1) {
 	const isConfirmed = database.prepare('select 1 from match_confirmations where match_number = ?');
 	const removePreviousResults = database.prepare(
 		'delete from match_results where match_number = ?'
@@ -340,6 +583,26 @@ export function saveMatchResults(database, snapshot, finishedAt) {
 				finishedAt
 			);
 		}
+		database
+			.prepare(
+				`insert into match_attempts (
+				 match_number, attempt_number, problem_set_id, problem_set_version, status,
+				 started_at, ended_at, created_at, updated_at
+				) values (?, ?, ?, ?, 'finished', ?, ?, ?, ?)
+				on conflict(match_number, attempt_number) do update set
+				 status = 'finished', ended_at = excluded.ended_at, updated_at = excluded.updated_at`
+			)
+			.run(
+				snapshot.matchNumber,
+				attemptNumber,
+				snapshot.problemSetId,
+				snapshot.problemSetVersion,
+				snapshot.startsAt ?? null,
+				finishedAt,
+				finishedAt,
+				finishedAt
+			);
+		saveAttemptResults(database, snapshot, attemptNumber, finishedAt);
 	});
 
 	replaceResults();
@@ -401,6 +664,7 @@ function createRoomSnapshot(room) {
 
 	return {
 		matchNumber: room.matchNumber,
+		attemptNumber: room.attemptNumber,
 		problemSetId: room.problemSetId,
 		problemSetVersion: room.problemSetVersion,
 		durationSeconds,

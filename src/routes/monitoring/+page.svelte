@@ -88,7 +88,10 @@
 			ready: '準備完了',
 			countdown: '開始待機',
 			running: '競技中',
-			finished: '終了'
+			finished: '終了',
+			interrupted: '中断',
+			force_finished: '強制終了',
+			invalidated: '無効'
 		}[status];
 	}
 

@@ -16,7 +16,7 @@ export function removeResultSubscriber(webSocket) {
 	subscribers.delete(webSocket);
 }
 
-/** @param {{ type: 'competition.finished' | 'competition.confirmed', data: { matchNumber: number } }} message */
+/** @param {{ type: 'competition.finished' | 'competition.confirmed' | 'competition.invalidated' | 'competition.disqualified' | 'competition.retry-prepared', data: { matchNumber: number } }} message */
 export function publishResultNotification(message) {
 	const payload = JSON.stringify(message);
 	for (const subscriber of subscribers) {

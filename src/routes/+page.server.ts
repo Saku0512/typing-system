@@ -19,7 +19,13 @@ export const load = () => {
 		results,
 		confirmedMatchNumbers,
 		teamStandings: createTeamStandings(
-			results.filter((result) => confirmedMatchNumberSet.has(result.matchNumber)),
+			results
+				.filter((result) => confirmedMatchNumberSet.has(result.matchNumber))
+				.map((result) => ({
+					...result,
+					rawScore: result.officialRawScore,
+					accuracy: result.officialAccuracy
+				})),
 			teams.map((team) => team.name)
 		)
 	};

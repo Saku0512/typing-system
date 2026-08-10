@@ -8,12 +8,27 @@ function createDatabase() {
 		create table match_results (
 			match_number integer not null,
 			lane_number integer not null,
+			problem_set_id text not null default 'typing-main-01',
+			problem_set_version integer not null default 1,
+			finished_at integer not null default 500,
 			primary key (match_number, lane_number)
 		);
 		create table match_confirmations (
 			match_number integer primary key,
 			confirmed_at integer not null,
 			confirmed_by text not null
+		);
+		create table match_attempts (
+			match_number integer not null, attempt_number integer not null,
+			problem_set_id text not null, problem_set_version integer not null, status text not null,
+			started_at integer, ended_at integer, created_at integer not null, updated_at integer not null,
+			reason text, operated_by text, primary key (match_number, attempt_number)
+		);
+		create table match_operations (
+			id integer primary key autoincrement, match_number integer not null,
+			attempt_number integer not null, action text not null, lane_number integer,
+			status_before text, status_after text, reason text, operated_at integer not null,
+			operated_by text not null
 		)
 	`);
 	return database;
@@ -23,7 +38,9 @@ describe('match result confirmation', () => {
 	it('requires all six results', () => {
 		const database = createDatabase();
 		for (let laneNumber = 1; laneNumber <= 5; laneNumber += 1) {
-			database.prepare('insert into match_results values (1, ?)').run(laneNumber);
+			database
+				.prepare('insert into match_results (match_number, lane_number) values (1, ?)')
+				.run(laneNumber);
 		}
 
 		expect(confirmMatchResults(database, 1, 'admin', 1_000)).toEqual({
@@ -37,7 +54,9 @@ describe('match result confirmation', () => {
 	it('confirms six results once and preserves the original audit values', () => {
 		const database = createDatabase();
 		for (let laneNumber = 1; laneNumber <= 6; laneNumber += 1) {
-			database.prepare('insert into match_results values (1, ?)').run(laneNumber);
+			database
+				.prepare('insert into match_results (match_number, lane_number) values (1, ?)')
+				.run(laneNumber);
 		}
 
 		expect(confirmMatchResults(database, 1, 'admin', 1_000)).toEqual({
@@ -55,6 +74,16 @@ describe('match result confirmation', () => {
 				)
 				.all()
 		).toEqual([{ matchNumber: 1, confirmedAt: 1_000, confirmedBy: 'admin' }]);
+		expect(
+			database.prepare('select status from match_attempts where match_number = 1').pluck().get()
+		).toBe('confirmed');
+		expect(
+			database
+				.prepare(
+					'select action, status_before as statusBefore, status_after as statusAfter from match_operations'
+				)
+				.get()
+		).toEqual({ action: 'confirm', statusBefore: 'finished', statusAfter: 'confirmed' });
 		database.close();
 	});
 });

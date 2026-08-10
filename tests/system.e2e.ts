@@ -88,6 +88,10 @@ test('confirms finished matches manually before publishing overall standings', a
 	];
 	database.transaction(() => {
 		database.prepare('delete from match_confirmations').run();
+		database.prepare('delete from match_disqualifications').run();
+		database.prepare('delete from match_operations').run();
+		database.prepare('delete from match_attempt_results').run();
+		database.prepare('delete from match_attempts').run();
 		database.prepare('delete from match_results').run();
 		for (const matchNumber of [1, 2, 3]) {
 			for (const [teamIndex, team] of teams.entries()) {
@@ -126,6 +130,20 @@ test('confirms finished matches manually before publishing overall standings', a
 
 		await admin.goto('/admin');
 		admin.on('dialog', (dialog) => dialog.accept());
+		const firstMatch = admin.locator('.confirmation-match').first();
+		await firstMatch.getByLabel('第1試合の失格対象').selectOption('1');
+		await firstMatch.getByPlaceholder('失格の理由').fill('競技規定違反');
+		await firstMatch.getByRole('button', { name: '失格', exact: true }).click();
+		await expect(admin.getByRole('status')).toContainText('失格を実行しました');
+		await expect(
+			admin
+				.locator('.confirmation-match')
+				.first()
+				.locator('.confirmation-row')
+				.filter({ hasText: '1年生' })
+				.locator('strong')
+				.first()
+		).toHaveText('失格');
 		for (const matchNumber of [1, 2, 3]) {
 			const match = admin.locator('.confirmation-match').nth(matchNumber - 1);
 			await expect(match.getByText('未確定', { exact: true })).toBeVisible();
@@ -136,12 +154,17 @@ test('confirms finished matches manually before publishing overall standings', a
 		}
 
 		await expect(page.getByRole('heading', { name: '総合順位' })).toBeVisible();
-		await expect(page.locator('.overall-total').first()).toContainText('426');
+		await expect(page.locator('.overall-total').first()).toContainText('396');
+		await expect(page.getByRole('region', { name: '第1試合' }).getByText('失格')).toBeVisible();
 	} finally {
 		await adminContext.close();
 		const cleanupDatabase = new Database(databaseUrl);
 		cleanupDatabase.transaction(() => {
 			cleanupDatabase.prepare('delete from match_confirmations').run();
+			cleanupDatabase.prepare('delete from match_disqualifications').run();
+			cleanupDatabase.prepare('delete from match_operations').run();
+			cleanupDatabase.prepare('delete from match_attempt_results').run();
+			cleanupDatabase.prepare('delete from match_attempts').run();
 			cleanupDatabase.prepare('delete from match_results').run();
 		})();
 		cleanupDatabase.close();
@@ -149,6 +172,17 @@ test('confirms finished matches manually before publishing overall standings', a
 });
 
 test('synchronizes six competition terminals with monitoring', async ({ browser }) => {
+	const database = new Database(databaseUrl);
+	database.transaction(() => {
+		database.prepare('delete from match_confirmations').run();
+		database.prepare('delete from match_disqualifications').run();
+		database.prepare('delete from match_operations').run();
+		database.prepare('delete from match_attempt_results').run();
+		database.prepare('delete from match_attempts').run();
+		database.prepare('delete from match_results').run();
+	})();
+	database.close();
+
 	const monitorContext = await browser.newContext();
 	const monitor = await monitorContext.newPage();
 	await monitor.goto('/monitoring');
@@ -203,6 +237,29 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	await expect(firstLane.locator('.monitor-metrics dd').first()).toHaveText('6');
 	await expect(firstLane.getByText(/位$/)).toHaveCount(0);
 	await expect(terminals[0].getByText('最終順位')).toHaveCount(0);
+
+	await firstMatchControl.getByRole('button', { name: '中断', exact: true }).click();
+	await expect(terminals[0].getByText('競技中断', { exact: true })).toBeVisible();
+	await expect(firstMatchControl.getByText('中断', { exact: true })).toBeVisible();
+
+	await firstMatchControl.getByPlaceholder('無効化の理由').fill('通信障害');
+	await firstMatchControl.getByRole('button', { name: '無効化' }).click();
+	await expect(terminals[0].getByText('試技無効', { exact: true })).toBeVisible();
+
+	await firstMatchControl.getByPlaceholder('再試合の理由').fill('通信復旧後に再実施');
+	await firstMatchControl.getByRole('button', { name: '再試合' }).click();
+	await expect(firstMatchControl).toContainText('試技2 / typing-reserve-01');
+	for (const terminal of terminals) {
+		await expect(terminal.getByRole('button', { name: '準備完了' })).toBeVisible();
+		await terminal.getByRole('button', { name: '準備完了' }).click();
+	}
+	await expect(firstMatchControl.locator('.competition-count')).toHaveText([/6\/6/, /6\/6/]);
+	await firstMatchControl.getByRole('button', { name: '一括開始' }).click();
+	await expect(terminals[0].getByText('競技中', { exact: true })).toBeVisible({ timeout: 6_000 });
+	await firstMatchControl.getByRole('button', { name: '強制終了' }).click();
+	await expect(terminals[0].getByText('強制終了', { exact: true })).toBeVisible();
+	await expect(admin.getByRole('heading', { name: '競技操作履歴' })).toBeVisible();
+	await expect(admin.locator('.operation-history-row')).toHaveCount(6);
 
 	for (const terminalContext of terminalContexts) await terminalContext.close();
 	await adminContext.close();

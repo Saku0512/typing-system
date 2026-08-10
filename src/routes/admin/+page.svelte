@@ -14,6 +14,8 @@
 	let competitionStatuses = $state<CompetitionAdminStatus[]>(
 		[1, 2, 3].map((matchNumber) => ({
 			matchNumber,
+			attemptNumber: 1,
+			problemSetId: '',
 			status: 'waiting',
 			connectedCount: 0,
 			readyCount: 0
@@ -39,7 +41,8 @@
 	}
 
 	function displayedStatus(matchNumber: number): CompetitionStatus {
-		return resultsFor(matchNumber).length === 6
+		return resultsFor(matchNumber).length === 6 &&
+			competitionStatusFor(matchNumber).status === 'waiting'
 			? 'finished'
 			: competitionStatusFor(matchNumber).status;
 	}
@@ -49,7 +52,10 @@
 			waiting: '準備待ち',
 			countdown: '開始待機',
 			running: '競技中',
-			finished: '終了'
+			finished: '終了',
+			interrupted: '中断',
+			force_finished: '強制終了',
+			invalidated: '無効'
 		}[status];
 	}
 
@@ -74,6 +80,46 @@
 		}
 	}
 
+	function operationSubmission(event: SubmitEvent, matchNumber: number, label: string) {
+		if (!window.confirm(`第${matchNumber}試合を${label}します。よろしいですか？`)) {
+			event.preventDefault();
+		}
+	}
+
+	function operationLabel(action: string) {
+		return (
+			{
+				start: '開始',
+				interrupt: '中断',
+				force_finish: '強制終了',
+				invalidate: '無効化',
+				retry: '再試合設定',
+				disqualify: '失格',
+				confirm: '結果確定'
+			}[action] ?? action
+		);
+	}
+
+	function operationStatusLabel(status: string | null) {
+		if (!status) return '-';
+		return (
+			{
+				waiting: '準備待ち',
+				running: '競技中',
+				countdown: '開始待機',
+				finished: '終了',
+				unconfirmed: '未確定',
+				confirmed: '確定',
+				interrupted: '中断',
+				force_finished: '強制終了',
+				invalidated: '無効',
+				retry_waiting: '再試合準備',
+				disqualified: '失格',
+				replaced: '差し替え済み'
+			}[status] ?? status
+		);
+	}
+
 	onMount(() => {
 		let stopped = false;
 		let socket: WebSocket | null = null;
@@ -87,13 +133,13 @@
 			socket.addEventListener('message', (event) => {
 				const message = JSON.parse(event.data) as CompetitionServerMessage;
 				if (message.type === 'competition.admin-status') {
-					const newlyFinished = message.data.matches.some(
+					const stateChanged = message.data.matches.some(
 						(status) =>
-							status.status === 'finished' &&
-							competitionStatusFor(status.matchNumber).status !== 'finished'
+							status.status !== competitionStatusFor(status.matchNumber).status ||
+							status.attemptNumber !== competitionStatusFor(status.matchNumber).attemptNumber
 					);
 					competitionStatuses = message.data.matches;
-					if (newlyFinished) void invalidateAll();
+					if (stateChanged) void invalidateAll();
 				} else if (message.type === 'competition.confirmed') {
 					void invalidateAll();
 				}
@@ -198,6 +244,17 @@
 		{#if form?.startIssue}
 			<p class="form-notice is-error" role="alert">{form.startIssue}</p>
 		{/if}
+		{#if form?.operationCompleted}
+			<p class="form-notice is-success" role="status">
+				第{form.operationMatchNumber}試合の{operationLabel(
+					form.operationAction
+				)}を実行しました。{#if form.operationProblemSetId}
+					使用問題: {form.operationProblemSetId}{/if}
+			</p>
+		{/if}
+		{#if form?.operationIssue}
+			<p class="form-notice is-error" role="alert">{form.operationIssue}</p>
+		{/if}
 
 		<div class="competition-control-table">
 			<div class="competition-control-row competition-control-header" aria-hidden="true">
@@ -210,20 +267,65 @@
 			{#each [1, 2, 3] as matchNumber (matchNumber)}
 				{@const status = competitionStatusFor(matchNumber)}
 				<div class="competition-control-row">
-					<strong>第{matchNumber}試合</strong>
+					<strong class="competition-match-label">
+						第{matchNumber}試合
+						<small>試技{status.attemptNumber} / {status.problemSetId || '-'}</small>
+					</strong>
 					<span class="competition-state" data-status={displayedStatus(matchNumber)}>
 						{statusLabel(displayedStatus(matchNumber))}
 					</span>
 					<span class="competition-count"><small>接続</small>{status.connectedCount}/6</span>
 					<span class="competition-count"><small>準備</small>{status.readyCount}/6</span>
-					<form
-						method="POST"
-						action="?/startCompetition"
-						onsubmit={(event) => startSubmission(event, matchNumber)}
-					>
-						<input type="hidden" name="matchNumber" value={matchNumber} />
-						<button type="submit" disabled={!canStart(matchNumber)}>一括開始</button>
-					</form>
+					<div class="competition-operations">
+						{#if displayedStatus(matchNumber) === 'waiting'}
+							<form
+								method="POST"
+								action="?/startCompetition"
+								onsubmit={(event) => startSubmission(event, matchNumber)}
+							>
+								<input type="hidden" name="matchNumber" value={matchNumber} />
+								<button type="submit" disabled={!canStart(matchNumber)}>一括開始</button>
+							</form>
+						{:else if displayedStatus(matchNumber) === 'countdown' || displayedStatus(matchNumber) === 'running'}
+							{#each [{ action: 'interrupt', label: '中断' }, { action: 'force_finish', label: '強制終了' }] as control (control.action)}
+								<form
+									method="POST"
+									action="?/competitionOperation"
+									onsubmit={(event) => operationSubmission(event, matchNumber, control.label)}
+								>
+									<input type="hidden" name="matchNumber" value={matchNumber} />
+									<input type="hidden" name="operation" value={control.action} />
+									<button class:danger-button={control.action === 'force_finish'} type="submit">
+										{control.label}
+									</button>
+								</form>
+							{/each}
+						{:else if displayedStatus(matchNumber) === 'invalidated'}
+							<form
+								class="reason-operation"
+								method="POST"
+								action="?/competitionOperation"
+								onsubmit={(event) => operationSubmission(event, matchNumber, '再試合として設定')}
+							>
+								<input type="hidden" name="matchNumber" value={matchNumber} />
+								<input type="hidden" name="operation" value="retry" />
+								<input name="reason" required placeholder="再試合の理由" />
+								<button type="submit">再試合</button>
+							</form>
+						{:else}
+							<form
+								class="reason-operation"
+								method="POST"
+								action="?/competitionOperation"
+								onsubmit={(event) => operationSubmission(event, matchNumber, '無効化')}
+							>
+								<input type="hidden" name="matchNumber" value={matchNumber} />
+								<input type="hidden" name="operation" value="invalidate" />
+								<input name="reason" required placeholder="無効化の理由" />
+								<button class="danger-button" type="submit">無効化</button>
+							</form>
+						{/if}
+					</div>
 				</div>
 			{/each}
 		</div>
@@ -278,33 +380,90 @@
 						</div>
 						{#each results as result (`${result.matchNumber}-${result.laneNumber}`)}
 							<div class="confirmation-row">
-								<strong>{result.rank}位</strong>
+								<strong>{result.disqualified ? '失格' : `${result.rank}位`}</strong>
 								<span>{result.teamName}</span>
 								<code>{result.representativeSource}</code>
 								<span>{result.correctTypes.toLocaleString()}</span>
 								<span>{result.incorrectTypes.toLocaleString()}</span>
 								<span>{result.wpm.toFixed(1)}</span>
 								<span>{(result.accuracy * 100).toFixed(1)}%</span>
-								<strong>{result.score.toLocaleString()}</strong>
+								<strong
+									title={result.disqualified ? `計算値 ${result.calculatedScore}` : undefined}
+								>
+									{result.score.toLocaleString()}
+								</strong>
 							</div>
 						{/each}
 					</div>
 
-					<form
-						class="confirmation-actions"
-						method="POST"
-						action="?/confirmResults"
-						onsubmit={(event) => confirmSubmission(event, matchNumber)}
-					>
-						<input type="hidden" name="matchNumber" value={matchNumber} />
-						<button type="submit" disabled={Boolean(confirmation)}>
-							{confirmation ? '確定済み' : '結果を確定'}
-						</button>
-					</form>
+					<div class="result-actions">
+						<form
+							class="disqualification-form"
+							method="POST"
+							action="?/competitionOperation"
+							onsubmit={(event) => operationSubmission(event, matchNumber, '選手を失格に')}
+						>
+							<input type="hidden" name="matchNumber" value={matchNumber} />
+							<input type="hidden" name="operation" value="disqualify" />
+							<select name="laneNumber" aria-label={`第${matchNumber}試合の失格対象`}>
+								{#each results.filter((result) => !result.disqualified) as result (result.laneNumber)}
+									<option value={result.laneNumber}>
+										レーン{result.laneNumber}
+										{result.teamName} / {result.representativeSource}
+									</option>
+								{/each}
+							</select>
+							<input name="reason" required placeholder="失格の理由" />
+							<button class="danger-button" type="submit"> 失格 </button>
+						</form>
+						<form
+							class="confirmation-actions"
+							method="POST"
+							action="?/confirmResults"
+							onsubmit={(event) => confirmSubmission(event, matchNumber)}
+						>
+							<input type="hidden" name="matchNumber" value={matchNumber} />
+							<button type="submit" disabled={Boolean(confirmation)}>
+								{confirmation ? '確定済み' : '結果を確定'}
+							</button>
+						</form>
+					</div>
 				{:else}
 					<p class="confirmation-empty">競技終了後に6名分の結果が表示されます。</p>
 				{/if}
 			</section>
 		{/each}
+	</section>
+
+	<section class="operation-history" aria-labelledby="operation-history-heading">
+		<div class="admin-toolbar">
+			<div>
+				<p class="eyebrow">AUDIT LOG</p>
+				<h2 id="operation-history-heading">競技操作履歴</h2>
+			</div>
+		</div>
+		{#if data.operations.length > 0}
+			<div class="operation-history-table">
+				{#each data.operations as operation (operation.id)}
+					<div class="operation-history-row">
+						<time datetime={operation.operatedAt.toISOString()}>
+							{operation.operatedAt.toLocaleString('ja-JP')}
+						</time>
+						<strong>第{operation.matchNumber}試合 / 試技{operation.attemptNumber}</strong>
+						<span>{operationLabel(operation.action)}</span>
+						<span>
+							{operationStatusLabel(operation.statusBefore)} → {operationStatusLabel(
+								operation.statusAfter
+							)}
+						</span>
+						<span>{operation.laneNumber ? `レーン${operation.laneNumber}` : '-'}</span>
+						<span>{operation.reason ?? '-'}</span>
+						<small>{operation.operatedBy}</small>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="confirmation-empty">操作履歴はありません。</p>
+		{/if}
 	</section>
 </main>

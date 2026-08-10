@@ -85,6 +85,37 @@ describe('finished competition results', () => {
 				problem_set_version integer not null,
 				finished_at integer not null,
 				primary key (match_number, lane_number)
+			);
+			create table match_attempts (
+				match_number integer not null,
+				attempt_number integer not null,
+				problem_set_id text not null,
+				problem_set_version integer not null,
+				status text not null,
+				started_at integer,
+				ended_at integer,
+				created_at integer not null,
+				updated_at integer not null,
+				reason text,
+				operated_by text,
+				primary key (match_number, attempt_number)
+			);
+			create table match_attempt_results (
+				match_number integer not null,
+				attempt_number integer not null,
+				lane_number integer not null,
+				team_name text not null,
+				representative_source text not null,
+				correct_types integer not null,
+				incorrect_types integer not null,
+				completed_problems integer not null,
+				wpm real not null,
+				accuracy real not null,
+				raw_score real not null,
+				score integer not null,
+				rank integer,
+				captured_at integer not null,
+				primary key (match_number, attempt_number, lane_number)
 			)
 		`);
 

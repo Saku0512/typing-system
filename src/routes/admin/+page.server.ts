@@ -6,12 +6,20 @@ import {
 	type MatchAssignment,
 	validateAssignments
 } from '$lib/server/tournament/match-assignments';
-import { getMatchConfirmations, getMatchResults } from '$lib/server/tournament/match-results';
+import {
+	getMatchAttempts,
+	getMatchConfirmations,
+	getMatchOperations,
+	getMatchResults
+} from '$lib/server/tournament/match-results';
 import { teams } from '$lib/server/tournament/team-structure';
 import { asc } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import Database from 'better-sqlite3';
-import { requestCompetitionStart } from '../../../server/competition-controls.js';
+import {
+	requestCompetitionOperation,
+	requestCompetitionStart
+} from '../../../server/competition-controls.js';
 import { confirmMatchResults } from '../../../server/result-confirmation.js';
 import { publishResultNotification } from '../../../server/result-notifications.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -30,7 +38,9 @@ export const load: PageServerLoad = () => {
 		teams,
 		assignments: savedAssignments.length > 0 ? savedAssignments : createDefaultAssignments(),
 		results: getMatchResults(),
-		confirmations: getMatchConfirmations()
+		confirmations: getMatchConfirmations(),
+		attempts: getMatchAttempts(),
+		operations: getMatchOperations().reverse()
 	};
 };
 
@@ -70,7 +80,8 @@ export const actions = {
 			return fail(409, { startIssue: `第${matchNumber}試合はすでに終了しています。` });
 		}
 
-		const result = requestCompetitionStart(matchNumber);
+		if (!env.ADMIN_USERNAME) throw new Error('ADMIN_USERNAME is not set');
+		const result = requestCompetitionStart(matchNumber, env.ADMIN_USERNAME);
 		if (!result.started) {
 			const message =
 				result.reason === 'not_ready'
@@ -84,6 +95,65 @@ export const actions = {
 		}
 
 		return { started: true, startedMatchNumber: matchNumber };
+	},
+	competitionOperation: async ({ request }) => {
+		const formData = await request.formData();
+		const action = String(formData.get('operation'));
+		const matchNumber = Number(formData.get('matchNumber'));
+		const laneNumber = Number(formData.get('laneNumber'));
+		const reason = String(formData.get('reason') ?? '').trim();
+		const allowedActions = [
+			'interrupt',
+			'force_finish',
+			'invalidate',
+			'retry',
+			'disqualify'
+		] as const;
+		if (!allowedActions.includes(action as (typeof allowedActions)[number])) {
+			return fail(400, { operationIssue: '操作の種類が正しくありません。' });
+		}
+		if (!Number.isInteger(matchNumber) || matchNumber < 1 || matchNumber > 3) {
+			return fail(400, { operationIssue: '試合番号が正しくありません。' });
+		}
+		if (
+			action === 'disqualify' &&
+			(!Number.isInteger(laneNumber) || laneNumber < 1 || laneNumber > 6)
+		) {
+			return fail(400, { operationIssue: 'レーン番号が正しくありません。' });
+		}
+		if (['invalidate', 'retry', 'disqualify'].includes(action) && !reason) {
+			return fail(400, { operationIssue: '理由を入力してください。' });
+		}
+		if (!env.ADMIN_USERNAME) throw new Error('ADMIN_USERNAME is not set');
+
+		const result = requestCompetitionOperation({
+			action: action as (typeof allowedActions)[number],
+			matchNumber,
+			laneNumber: action === 'disqualify' ? laneNumber : undefined,
+			reason: reason || (action === 'interrupt' ? '管理者による中断' : '管理者による強制終了'),
+			operatedBy: env.ADMIN_USERNAME
+		});
+		if (!result.completed) {
+			const messages: Record<string, string> = {
+				controller_unavailable: '競技サーバーに接続できません。',
+				room_not_initialized: '選手端末が接続されていません。',
+				invalid_status: '現在の試合状態では実行できません。',
+				attempt_not_found: '対象の試技がありません。',
+				match_not_invalidated: '再試合の前に試技を無効化してください。',
+				reserve_exhausted: '利用できる予備問題がありません。',
+				result_not_found: '対象の試合結果がありません。'
+			};
+			return fail(409, {
+				operationIssue: messages[result.reason] ?? '操作を実行できませんでした。'
+			});
+		}
+
+		return {
+			operationCompleted: true,
+			operationMatchNumber: matchNumber,
+			operationAction: action,
+			operationProblemSetId: result.problemSetId
+		};
 	},
 	confirmResults: async ({ request }) => {
 		const formData = await request.formData();

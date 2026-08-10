@@ -244,6 +244,9 @@
 		if (connectionState === 'connecting') return '接続中';
 		if (connectionState === 'error') return '接続エラー';
 		if (snapshot?.status === 'finished') return '競技終了';
+		if (snapshot?.status === 'interrupted') return '競技中断';
+		if (snapshot?.status === 'force_finished') return '強制終了';
+		if (snapshot?.status === 'invalidated') return '試技無効';
 		if (snapshot?.status === 'countdown') return `${countdown()}`;
 		if (ownLane?.status === 'running') return '競技中';
 		if (ownLane?.ready) return '全員の準備を待っています';

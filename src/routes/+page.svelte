@@ -18,7 +18,13 @@
 			});
 			socket.addEventListener('message', (event) => {
 				const message = JSON.parse(event.data) as CompetitionServerMessage;
-				if (message.type === 'competition.finished' || message.type === 'competition.confirmed') {
+				if (
+					message.type === 'competition.finished' ||
+					message.type === 'competition.confirmed' ||
+					message.type === 'competition.invalidated' ||
+					message.type === 'competition.disqualified' ||
+					message.type === 'competition.retry-prepared'
+				) {
 					void invalidateAll();
 				}
 			});
@@ -104,7 +110,9 @@
 									<span>{assignment.teamName}</span>
 									<code>{assignment.representativeSource}</code>
 									<strong class="lane-score">{result ? result.score.toLocaleString() : '-'}</strong>
-									<strong class="lane-rank">{result ? `${result.rank}位` : '-'}</strong>
+									<strong class="lane-rank">
+										{result ? (result.disqualified ? '失格' : `${result.rank}位`) : '-'}
+									</strong>
 								</div>
 							{/each}
 						</div>
