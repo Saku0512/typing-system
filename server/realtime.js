@@ -18,7 +18,10 @@ export function attachRealtimeServer(server) {
 
 	server.on('upgrade', (request, socket, head) => {
 		const url = new URL(request.url ?? '/', 'http://localhost');
-		if (url.pathname !== '/ws') return;
+		if (url.pathname !== '/ws') {
+			socket.destroy();
+			return;
+		}
 
 		webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
 			webSocketServer.emit('connection', webSocket, request);
