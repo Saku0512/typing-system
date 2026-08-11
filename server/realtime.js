@@ -17,7 +17,13 @@ export function attachRealtimeServer(server) {
 	attachedServers.set(server, webSocketServer);
 
 	server.on('upgrade', (request, socket, head) => {
-		const url = new URL(request.url ?? '/', 'http://localhost');
+		let url;
+		try {
+			url = new URL(request.url ?? '/', 'http://localhost');
+		} catch {
+			socket.destroy();
+			return;
+		}
 		if (url.pathname !== '/ws') {
 			socket.destroy();
 			return;

@@ -18,4 +18,20 @@ describe('realtime server upgrades', () => {
 
 		expect(destroy).toHaveBeenCalledOnce();
 	});
+
+	it('destroys malformed upgrade URLs without throwing', () => {
+		const server = createServer();
+		attachRealtimeServer(server);
+		const destroy = vi.fn();
+
+		expect(() =>
+			server.emit(
+				'upgrade',
+				{ url: '//[' } as IncomingMessage,
+				{ destroy } as unknown as Socket,
+				Buffer.alloc(0)
+			)
+		).not.toThrow();
+		expect(destroy).toHaveBeenCalledOnce();
+	});
 });
