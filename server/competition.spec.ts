@@ -100,15 +100,22 @@ describe('competition lane reconnection', () => {
 	});
 
 	it('limits simultaneous admin subscribers', () => {
-		const manager = createCompetitionManager();
-		const admins = Array.from({ length: 9 }, () => new TestSocket());
-		for (const admin of admins) {
-			manager.handle(admin as unknown as WebSocket, { type: 'admin.subscribe' });
-		}
+		const previousDatabaseUrl = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = ':memory:';
+		try {
+			const manager = createCompetitionManager();
+			const admins = Array.from({ length: 9 }, () => new TestSocket());
+			for (const admin of admins) {
+				manager.handle(admin as unknown as WebSocket, { type: 'admin.subscribe' });
+			}
 
-		expect(admins.slice(0, 8).every((admin) => admin.closeCode === undefined)).toBe(true);
-		expect(admins[8].closeCode).toBe(1013);
-		expect(admins[8].closeReason).toBe('admin_subscriber_limit');
+			expect(admins.slice(0, 8).every((admin) => admin.closeCode === undefined)).toBe(true);
+			expect(admins[8].closeCode).toBe(1013);
+			expect(admins[8].closeReason).toBe('admin_subscriber_limit');
+		} finally {
+			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = previousDatabaseUrl;
+		}
 	});
 
 	it('drops typing bursts beyond the per-lane allowance', () => {

@@ -61,8 +61,10 @@ describe('realtime server upgrades', () => {
 	it('requires the existing admin Basic credentials for admin subscriptions', () => {
 		const previousUsername = process.env.ADMIN_USERNAME;
 		const previousPassword = process.env.ADMIN_PASSWORD;
+		const previousDatabaseUrl = process.env.DATABASE_URL;
 		process.env.ADMIN_USERNAME = 'admin';
 		process.env.ADMIN_PASSWORD = 'secret';
+		process.env.DATABASE_URL = ':memory:';
 		const server = createServer();
 		const webSocketServer = attachRealtimeServer(server);
 		const createSocket = () => {
@@ -103,6 +105,8 @@ describe('realtime server upgrades', () => {
 			else process.env.ADMIN_USERNAME = previousUsername;
 			if (previousPassword === undefined) delete process.env.ADMIN_PASSWORD;
 			else process.env.ADMIN_PASSWORD = previousPassword;
+			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = previousDatabaseUrl;
 		}
 	});
 });
