@@ -2,6 +2,7 @@ import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
 import { matchAssignments } from '$lib/server/db/schema';
 import {
+	changedLockedMatchNumbers,
 	createDefaultAssignments,
 	type MatchAssignment,
 	validateAssignments
@@ -20,7 +21,8 @@ import { fail } from '@sveltejs/kit';
 import Database from 'better-sqlite3';
 import {
 	requestCompetitionOperation,
-	requestCompetitionStart
+	requestCompetitionStart,
+	requestLockedAssignmentMatchNumbers
 } from '../../../server/competition-controls.js';
 import { confirmMatchResults } from '../../../server/result-confirmation.js';
 import { publishResultNotification } from '../../../server/result-notifications.js';
@@ -70,6 +72,26 @@ export const actions = {
 
 		const issues = validateAssignments(assignments);
 		if (issues.length > 0) return fail(400, { issues, assignments });
+
+		const currentAssignments = db.select().from(matchAssignments).all();
+		const lockedMatchNumbers = new Set([
+			...getMatchAttempts().map((attempt) => attempt.matchNumber),
+			...getMatchResults().map((result) => result.matchNumber),
+			...requestLockedAssignmentMatchNumbers()
+		]);
+		const changedLockedMatches = changedLockedMatchNumbers(
+			currentAssignments,
+			assignments,
+			lockedMatchNumbers
+		);
+		if (changedLockedMatches.length > 0) {
+			return fail(409, {
+				issues: changedLockedMatches.map(
+					(matchNumber) => `第${matchNumber}試合は開始済みのため割り当てを変更できません。`
+				),
+				assignments
+			});
+		}
 
 		const updatedAt = new Date();
 		db.transaction((transaction) => {

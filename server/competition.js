@@ -23,6 +23,7 @@ import { applyTypingEvent, createTypingState, getTypingView } from './typing-eng
  * @typedef {{ problem_id: string, display_text: string, reading: string }} ProblemPresetEntry
  * @typedef {{ problem_set_id: string, version: number, role: 'main' | 'reserve', match_number?: number, reserve_priority?: number, problems: ProblemPresetEntry[] }} ProblemPreset
  * @typedef {{ laneNumber: number, teamName: string, representativeSource: string }} Assignment
+ * @typedef {{ laneNumber: number, correctTypes: number, incorrectTypes: number, completedProblems: number, wpm: number, accuracy: number, rawScore: number, score: number, rank: number }} PersistedMatchResult
  * @typedef {{ laneNumber: number, teamName: string, representativeSource: string, correctTypes: number, incorrectTypes: number, completedProblems: number, wpm: number, accuracy: number, rawScore: number, score: number, rank: number | null }} FinishedLaneResult
  * @typedef {{ matchNumber: number, problemSetId: string, problemSetVersion: number, startsAt?: number | null, lanes: FinishedLaneResult[] }} FinishedResultSnapshot
  */
@@ -48,11 +49,15 @@ export function createCompetitionManager() {
 	const rooms = new Map();
 	const connections = new WeakMap();
 	const adminSubscribers = new Set();
+	/** @type {ReturnType<typeof createAdminStatusMessage> | undefined} */
+	let cachedAdminStatusMessage;
+	let cachedAdminStatusUntil = 0;
 
 	const manager = {
 		/** @param {WebSocket} webSocket @param {any} message */
 		handle(webSocket, message) {
 			if (message.type === 'admin.subscribe') {
+				if (connections.get(webSocket)?.role === 'admin') return true;
 				leaveCurrentConnection(webSocket);
 				adminSubscribers.add(webSocket);
 				connections.set(webSocket, { role: 'admin' });
@@ -144,6 +149,12 @@ export function createCompetitionManager() {
 		/** @param {WebSocket} webSocket */
 		disconnect(webSocket) {
 			leaveCurrentConnection(webSocket);
+		},
+
+		lockedAssignmentMatchNumbers() {
+			return [...rooms.values()]
+				.filter((room) => room.status !== 'waiting')
+				.map((room) => room.matchNumber);
 		},
 
 		/** @param {number} matchNumber @param {string} operatedBy */
@@ -252,14 +263,19 @@ export function createCompetitionManager() {
 			reading: problem.reading
 		}));
 		const assignments = loadAssignments(matchNumber);
+		const persistedResults = new Map(
+			latestAttempt && ['finished', 'confirmed'].includes(latestAttempt.status)
+				? loadMatchResults(matchNumber).map((result) => [result.laneNumber, result])
+				: []
+		);
 		room = {
 			matchNumber,
 			attemptNumber: latestAttempt?.attemptNumber ?? 1,
 			problemSetId: preset.problem_set_id,
 			problemSetVersion: preset.version,
 			status: restoredRoomStatus(latestAttempt?.status),
-			startsAt: null,
-			endsAt: null,
+			startsAt: latestAttempt?.startedAt ?? null,
+			endsAt: latestAttempt?.endedAt ?? null,
 			startOperatedBy: null,
 			ticker: null,
 			problems,
@@ -273,6 +289,7 @@ export function createCompetitionManager() {
 						connected: false,
 						ready: false,
 						webSocket: null,
+						persistedResult: persistedResults.get(assignment.laneNumber) ?? null,
 						typingState: createTypingState(problems)
 					}
 				])
@@ -300,6 +317,7 @@ export function createCompetitionManager() {
 				connected: false,
 				ready: false,
 				webSocket: null,
+				persistedResult: null,
 				typingState: createTypingState(room.problems)
 			});
 		}
@@ -347,11 +365,18 @@ export function createCompetitionManager() {
 
 	/** @param {WebSocket} webSocket */
 	function sendAdminStatus(webSocket) {
-		send(webSocket, createAdminStatusMessage(rooms));
+		const now = Date.now();
+		if (!cachedAdminStatusMessage || now >= cachedAdminStatusUntil) {
+			cachedAdminStatusMessage = createAdminStatusMessage(rooms);
+			cachedAdminStatusUntil = now + 1_000;
+		}
+		send(webSocket, cachedAdminStatusMessage);
 	}
 
 	function broadcastAdminStatus() {
 		const message = createAdminStatusMessage(rooms);
+		cachedAdminStatusMessage = message;
+		cachedAdminStatusUntil = Date.now() + 1_000;
 		for (const subscriber of adminSubscribers) send(subscriber, message);
 	}
 }
@@ -495,6 +520,7 @@ function resetRoom(room, preset, attemptNumber) {
 	room.startOperatedBy = null;
 	for (const lane of room.lanes.values()) {
 		lane.ready = false;
+		lane.persistedResult = null;
 		lane.typingState = createTypingState(problems);
 	}
 	broadcastSnapshot(room);
@@ -684,6 +710,31 @@ function loadAssignments(matchNumber) {
 	}
 }
 
+/** @param {number} matchNumber @returns {PersistedMatchResult[]} */
+function loadMatchResults(matchNumber) {
+	const databasePath = process.env.DATABASE_URL ?? 'data/typing-system.db';
+	let database;
+	try {
+		database = new Database(databasePath, { readonly: true, fileMustExist: true });
+		return /** @type {PersistedMatchResult[]} */ (
+			database
+				.prepare(
+					`select lane_number as laneNumber, correct_types as correctTypes,
+				        incorrect_types as incorrectTypes, completed_problems as completedProblems,
+				        wpm, accuracy, raw_score as rawScore, score, rank
+				 from match_results where match_number = ? order by lane_number`
+				)
+				.all(matchNumber)
+		);
+	} catch (error) {
+		const code = /** @type {{ code?: string }} */ (error).code;
+		if (code === 'SQLITE_CANTOPEN' || code === 'SQLITE_ERROR') return [];
+		throw error;
+	} finally {
+		database?.close();
+	}
+}
+
 /** @param {any} room */
 function broadcastSnapshot(room) {
 	const message = { type: 'competition.snapshot', data: createRoomSnapshot(room) };
@@ -718,7 +769,10 @@ function createRoomSnapshot(room) {
 		readyCount: lanes.filter((lane) => lane.ready).length,
 		lanes: lanes.map((lane) => ({
 			...lane,
-			rank: publishedRank(room.status, ranks.get(lane.laneNumber))
+			rank: publishedRank(
+				room.status,
+				room.lanes.get(lane.laneNumber)?.persistedResult?.rank ?? ranks.get(lane.laneNumber)
+			)
 		}))
 	};
 }
@@ -779,6 +833,25 @@ function compareFractions(leftNumerator, leftDenominator, rightNumerator, rightD
 /** @param {any} room @param {any} lane @param {number} now */
 function createLaneSnapshot(room, lane, now) {
 	const view = getTypingView(lane.typingState);
+	if (room.status === 'finished' && lane.persistedResult) {
+		return {
+			laneNumber: lane.laneNumber,
+			teamName: lane.teamName,
+			representativeSource: lane.representativeSource,
+			connected: lane.connected,
+			ready: lane.ready,
+			status: 'finished',
+			...view,
+			correctTypes: lane.persistedResult.correctTypes,
+			incorrectTypes: lane.persistedResult.incorrectTypes,
+			completedProblems: lane.persistedResult.completedProblems,
+			accuracy: lane.persistedResult.accuracy,
+			wpm: lane.persistedResult.wpm,
+			rawScore: lane.persistedResult.rawScore,
+			score: lane.persistedResult.score,
+			progress: 0
+		};
+	}
 	const elapsedSeconds =
 		room.startsAt === null
 			? 0

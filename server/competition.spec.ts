@@ -84,6 +84,13 @@ describe('competition lane reconnection', () => {
 			expect(replaced.closeCode).toBe(4001);
 			expect(replaced.closeReason).toBe('lane_reconnected');
 			expect(lane.ready).toBe(false);
+
+			const admin = new TestSocket();
+			manager.handle(admin as unknown as WebSocket, { type: 'admin.subscribe' });
+			manager.handle(admin as unknown as WebSocket, { type: 'admin.subscribe' });
+			expect(
+				admin.messages.filter((message) => message.type === 'competition.admin-status')
+			).toHaveLength(1);
 		} finally {
 			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
 			else process.env.DATABASE_URL = previousDatabaseUrl;
@@ -142,6 +149,69 @@ describe('competition lane reconnection', () => {
 			).toBe(false);
 		} finally {
 			database.close();
+			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = previousDatabaseUrl;
+			rmSync(temporaryDirectory, { recursive: true, force: true });
+		}
+	});
+
+	it('restores persisted lane results for a finished room', () => {
+		const temporaryDirectory = mkdtempSync(join(tmpdir(), 'typing-system-results-test-'));
+		const databasePath = join(temporaryDirectory, 'test.db');
+		const previousDatabaseUrl = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = databasePath;
+		const database = new Database(databasePath);
+		database.exec(`
+			create table match_attempts (
+				match_number integer not null, attempt_number integer not null,
+				problem_set_id text not null, problem_set_version integer not null,
+				status text not null, started_at integer, ended_at integer,
+				primary key (match_number, attempt_number)
+			);
+			create table match_assignments (
+				match_number integer not null, team_name text not null,
+				representative_source text not null, lane_number integer not null
+			);
+			create table match_results (
+				match_number integer not null, lane_number integer not null,
+				team_name text not null, representative_source text not null,
+				correct_types integer not null, incorrect_types integer not null,
+				completed_problems integer not null, wpm real not null, accuracy real not null,
+				raw_score real not null, score integer not null, rank integer not null,
+				problem_set_id text not null, problem_set_version integer not null,
+				finished_at integer not null, primary key (match_number, lane_number)
+			);
+			insert into match_assignments values (1, '1年生', '1-1', 1);
+			insert into match_attempts values
+				(1, 1, 'typing-main-01', 1, 'confirmed', 1000, 181000);
+			insert into match_results values
+				(1, 1, '1年生', '1-1', 419, 5, 12, 139, 0.98, 195.5, 195, 1,
+				 'typing-main-01', 1, 181000);
+		`);
+		database.close();
+
+		try {
+			const manager = createCompetitionManager();
+			const monitor = new TestSocket();
+			manager.handle(monitor as unknown as WebSocket, {
+				type: 'monitor.subscribe',
+				data: { matchNumber: 1 }
+			});
+			const snapshot = monitor.messages.find(
+				(message) => message.type === 'competition.snapshot'
+			)?.data;
+			const restoredLane = (snapshot?.lanes as Array<Record<string, unknown>>)[0];
+
+			expect(snapshot?.status).toBe('finished');
+			expect(restoredLane).toMatchObject({
+				status: 'finished',
+				correctTypes: 419,
+				incorrectTypes: 5,
+				wpm: 139,
+				score: 195,
+				rank: 1
+			});
+		} finally {
 			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
 			else process.env.DATABASE_URL = previousDatabaseUrl;
 			rmSync(temporaryDirectory, { recursive: true, force: true });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultAssignments, validateAssignments } from './match-assignments';
+import {
+	changedLockedMatchNumbers,
+	createDefaultAssignments,
+	validateAssignments
+} from './match-assignments';
 
 describe('match assignments', () => {
 	it('creates a valid three-match assignment', () => {
@@ -23,5 +27,18 @@ describe('match assignments', () => {
 				'第1試合のレーンを1〜6で重複なく設定してください。'
 			])
 		);
+	});
+
+	it('detects changes only in locked matches', () => {
+		const current = createDefaultAssignments();
+		const next = structuredClone(current);
+		next.find(
+			(assignment) => assignment.matchNumber === 1 && assignment.teamName === '1年生'
+		)!.representativeSource = '1-2';
+		next.find(
+			(assignment) => assignment.matchNumber === 2 && assignment.teamName === '2年生'
+		)!.representativeSource = 'IT2';
+
+		expect(changedLockedMatchNumbers(current, next, [1, 3])).toEqual([1]);
 	});
 });

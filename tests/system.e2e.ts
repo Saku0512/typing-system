@@ -255,6 +255,38 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	admin.on('dialog', (dialog) => dialog.accept());
 	await firstMatchControl.getByRole('button', { name: '一括開始' }).click();
 	await expect(admin.getByRole('status')).toHaveText('第1試合を開始しました。');
+	const lockedAssignmentResult = await admin.evaluate(
+		async (assignments) => {
+			const response = await fetch('/admin?/saveAssignments', {
+				method: 'POST',
+				redirect: 'manual',
+				headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: new URLSearchParams(assignments)
+			});
+			return response.json();
+		},
+		{
+			source_1_0: '1-2',
+			source_1_1: 'IS2',
+			source_1_2: 'IS3',
+			source_1_3: 'IS4',
+			source_1_4: 'IS5',
+			source_1_5: '専教',
+			source_2_0: '1-1',
+			source_2_1: 'IT2',
+			source_2_2: 'IT3',
+			source_2_3: 'IT4',
+			source_2_4: 'IT5',
+			source_2_5: '専教',
+			source_3_0: '1-3',
+			source_3_1: 'IE2',
+			source_3_2: 'IE3',
+			source_3_3: 'IE4',
+			source_3_4: 'IE5',
+			source_3_5: '専教'
+		}
+	);
+	expect(lockedAssignmentResult).toMatchObject({ type: 'failure', status: 409 });
 
 	await expect(terminals[0].getByText('競技中', { exact: true })).toBeVisible({ timeout: 6_000 });
 	await terminals[1].reload();

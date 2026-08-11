@@ -1,6 +1,6 @@
 const controllerKey = Symbol.for('typing-system.competition-controller');
 
-/** @param {{ start: (matchNumber: number, operatedBy: string) => CompetitionStartResult, operate: (operation: CompetitionOperation) => CompetitionOperationResult }} controller */
+/** @param {{ start: (matchNumber: number, operatedBy: string) => CompetitionStartResult, operate: (operation: CompetitionOperation) => CompetitionOperationResult, lockedAssignmentMatchNumbers?: () => number[] }} controller */
 export function registerCompetitionController(controller) {
 	Reflect.set(globalThis, controllerKey, controller);
 }
@@ -21,6 +21,12 @@ export function requestCompetitionOperation(operation) {
 		return { completed: false, reason: 'controller_unavailable' };
 	}
 	return controller.operate(operation);
+}
+
+export function requestLockedAssignmentMatchNumbers() {
+	const controller = Reflect.get(globalThis, controllerKey);
+	if (!controller || typeof controller.lockedAssignmentMatchNumbers !== 'function') return [];
+	return controller.lockedAssignmentMatchNumbers();
 }
 
 /**

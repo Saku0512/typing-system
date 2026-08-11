@@ -76,3 +76,24 @@ export function validateAssignments(assignments: MatchAssignment[]): string[] {
 
 	return [...new Set(issues)];
 }
+
+export function changedLockedMatchNumbers(
+	currentAssignments: MatchAssignment[],
+	nextAssignments: MatchAssignment[],
+	lockedMatchNumbers: Iterable<number>
+): number[] {
+	return [...new Set(lockedMatchNumbers)].filter((matchNumber) => {
+		const normalize = (assignments: MatchAssignment[]) =>
+			assignments
+				.filter((assignment) => assignment.matchNumber === matchNumber)
+				.map(({ teamName, representativeSource, laneNumber }) => ({
+					teamName,
+					representativeSource,
+					laneNumber
+				}))
+				.sort((left, right) => left.laneNumber - right.laneNumber);
+		return (
+			JSON.stringify(normalize(currentAssignments)) !== JSON.stringify(normalize(nextAssignments))
+		);
+	});
+}

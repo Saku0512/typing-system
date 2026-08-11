@@ -48,6 +48,13 @@
 			: competitionStatusFor(matchNumber).status;
 	}
 
+	function assignmentLocked(matchNumber: number) {
+		return (
+			data.attempts.some((attempt) => attempt.matchNumber === matchNumber) ||
+			competitionStatusFor(matchNumber).status !== 'waiting'
+		);
+	}
+
 	function statusLabel(status: CompetitionStatus) {
 		return {
 			waiting: '準備待ち',
@@ -240,7 +247,17 @@
 							<strong>{team.name}</strong>
 							<label>
 								<span class="visually-hidden">第{matchNumber}試合 {team.name} 出場クラス</span>
-								<select name={`source_${matchNumber}_${teamIndex}`}>
+								{#if assignmentLocked(matchNumber)}
+									<input
+										type="hidden"
+										name={`source_${matchNumber}_${teamIndex}`}
+										value={assignment?.representativeSource ?? ''}
+									/>
+								{/if}
+								<select
+									name={`source_${matchNumber}_${teamIndex}`}
+									disabled={assignmentLocked(matchNumber)}
+								>
 									{#each team.representativeSources as source (source)}
 										<option value={source} selected={assignment?.representativeSource === source}>
 											{source}
