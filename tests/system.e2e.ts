@@ -149,12 +149,10 @@ test('survives a malformed WebSocket text frame', async ({ request }) => {
 	expect(health.ok()).toBe(true);
 });
 
-test('requires a replacement terminal to become ready again', async ({ browser }) => {
+test('requires a replacement terminal to become ready again', async ({ browser, page: first }) => {
 	clearCompetitionResults();
-	const firstContext = await browser.newContext();
 	const replacementContext = await browser.newContext();
 	try {
-		const first = await firstContext.newPage();
 		await first.goto('/competition');
 		await first.getByLabel('出場クラス').selectOption('1-1');
 		await first.getByRole('button', { name: '端末を接続' }).click();
@@ -169,7 +167,6 @@ test('requires a replacement terminal to become ready again', async ({ browser }
 		await expect(replacement.getByRole('button', { name: '準備完了' })).toBeVisible();
 		await expect(first.getByText('この出場クラスは別の端末で接続されました。')).toBeVisible();
 	} finally {
-		await firstContext.close();
 		await replacementContext.close();
 	}
 });
