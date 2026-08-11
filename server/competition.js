@@ -23,6 +23,8 @@ import { applyTypingEvent, createTypingState, getTypingView } from './typing-eng
  * @typedef {{ problem_id: string, display_text: string, reading: string }} ProblemPresetEntry
  * @typedef {{ problem_set_id: string, version: number, role: 'main' | 'reserve', match_number?: number, reserve_priority?: number, problems: ProblemPresetEntry[] }} ProblemPreset
  * @typedef {{ laneNumber: number, teamName: string, representativeSource: string }} Assignment
+ * @typedef {{ laneNumber: number, teamName: string, representativeSource: string, correctTypes: number, incorrectTypes: number, completedProblems: number, wpm: number, accuracy: number, rawScore: number, score: number, rank: number | null }} FinishedLaneResult
+ * @typedef {{ matchNumber: number, problemSetId: string, problemSetVersion: number, startsAt?: number | null, lanes: FinishedLaneResult[] }} FinishedResultSnapshot
  */
 
 /** @type {{ duration_seconds: number, presets: ProblemPreset[] }} */
@@ -87,7 +89,13 @@ export function createCompetitionManager() {
 				}
 
 				if (lane.webSocket && lane.webSocket !== webSocket) {
-					send(lane.webSocket, { type: 'system.error', data: { code: 'lane_reconnected' } });
+					const replacedWebSocket = lane.webSocket;
+					connections.delete(replacedWebSocket);
+					send(replacedWebSocket, {
+						type: 'system.error',
+						data: { code: 'lane_reconnected' }
+					});
+					replacedWebSocket.close(4001, 'lane_reconnected');
 				}
 				lane.webSocket = webSocket;
 				lane.connected = true;
@@ -540,7 +548,7 @@ function persistRoomResults(room) {
 
 /**
  * @param {import('better-sqlite3').Database} database
- * @param {ReturnType<typeof createRoomSnapshot>} snapshot
+ * @param {FinishedResultSnapshot} snapshot
  * @param {number} finishedAt
  * @param {number} attemptNumber
  */

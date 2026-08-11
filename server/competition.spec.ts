@@ -1,6 +1,15 @@
 import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { WebSocket } from 'ws';
 import { describe, expect, it } from 'vitest';
-import { createIndividualRanks, publishedRank, saveMatchResults } from './competition.js';
+import {
+	createCompetitionManager,
+	createIndividualRanks,
+	publishedRank,
+	saveMatchResults
+} from './competition.js';
 
 type Result = {
 	laneNumber: number;
@@ -12,6 +21,76 @@ type Result = {
 function ranksFor(results: Result[]) {
 	return [...createIndividualRanks(results).values()];
 }
+
+class TestSocket {
+	readyState: number = WebSocket.OPEN;
+	messages: Array<{ type: string; data: Record<string, unknown> }> = [];
+	closeCode: number | undefined;
+	closeReason: string | undefined;
+
+	send(payload: string) {
+		this.messages.push(JSON.parse(payload));
+	}
+
+	close(code: number, reason: string) {
+		this.readyState = WebSocket.CLOSED;
+		this.closeCode = code;
+		this.closeReason = reason;
+	}
+}
+
+describe('competition lane reconnection', () => {
+	it('revokes the replaced connection before accepting the new connection', () => {
+		const temporaryDirectory = mkdtempSync(join(tmpdir(), 'typing-system-reconnect-test-'));
+		const databasePath = join(temporaryDirectory, 'test.db');
+		const previousDatabaseUrl = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = databasePath;
+		const database = new Database(databasePath);
+		database.exec(`
+			create table match_attempts (
+				match_number integer not null,
+				attempt_number integer not null,
+				problem_set_id text not null,
+				problem_set_version integer not null,
+				status text not null,
+				started_at integer,
+				ended_at integer,
+				primary key (match_number, attempt_number)
+			);
+			create table match_assignments (
+				match_number integer not null,
+				team_name text not null,
+				representative_source text not null,
+				lane_number integer not null
+			);
+			insert into match_assignments values (1, '1年生', '1-1', 1);
+		`);
+		database.close();
+
+		try {
+			const manager = createCompetitionManager();
+			const replaced = new TestSocket();
+			const replacement = new TestSocket();
+			const join = { type: 'typing.join', data: { matchNumber: 1, laneNumber: 1 } };
+
+			manager.handle(replaced as unknown as WebSocket, join);
+			manager.handle(replacement as unknown as WebSocket, join);
+			manager.handle(replaced as unknown as WebSocket, { type: 'typing.ready' });
+
+			const latestSnapshot = replacement.messages
+				.filter((message) => message.type === 'competition.snapshot')
+				.at(-1);
+			const lane = (latestSnapshot?.data.lanes as Array<{ ready: boolean }>)[0];
+			expect(replaced.closeCode).toBe(4001);
+			expect(replaced.closeReason).toBe('lane_reconnected');
+			expect(lane.ready).toBe(false);
+		} finally {
+			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = previousDatabaseUrl;
+			rmSync(temporaryDirectory, { recursive: true, force: true });
+		}
+	});
+});
 
 describe('individual competition ranking', () => {
 	it('publishes ranks only after the competition finishes', () => {

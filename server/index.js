@@ -4,11 +4,13 @@ import { attachRealtimeServer } from './realtime.js';
 try {
 	process.loadEnvFile?.();
 } catch (error) {
-	if (error?.code !== 'ENOENT') throw error;
+	if (/** @type {{ code?: string }} */ (error).code !== 'ENOENT') throw error;
 }
 
 process.env.PROTOCOL_HEADER ??= 'x-forwarded-proto';
-const { handler } = await import('../build/handler.js');
+const handlerModulePath = '../build/handler.js';
+/** @type {import('node:http').RequestListener} */
+const handler = (await import(handlerModulePath)).handler;
 const host = process.env.HOST ?? '0.0.0.0';
 const port = Number(process.env.PORT ?? 3000);
 const server = createServer((request, response) => {
