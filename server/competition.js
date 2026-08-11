@@ -237,7 +237,10 @@ export function createCompetitionManager() {
 	/** @param {number} matchNumber */
 	function roomFor(matchNumber) {
 		let room = rooms.get(matchNumber);
-		if (room) return room;
+		if (room) {
+			synchronizeWaitingRoomAssignments(room);
+			return room;
+		}
 
 		const latestAttempt = readLatestAttempt(matchNumber);
 		const preset = latestAttempt
@@ -259,6 +262,7 @@ export function createCompetitionManager() {
 			endsAt: null,
 			startOperatedBy: null,
 			ticker: null,
+			problems,
 			monitors: new Set(),
 			notifyAdmin: broadcastAdminStatus,
 			lanes: new Map(
@@ -276,6 +280,35 @@ export function createCompetitionManager() {
 		};
 		rooms.set(matchNumber, room);
 		return room;
+	}
+
+	/** @param {any} room */
+	function synchronizeWaitingRoomAssignments(room) {
+		if (room.status !== 'waiting') return;
+
+		const assignments = loadAssignments(room.matchNumber);
+		const assignedLaneNumbers = new Set(assignments.map((assignment) => assignment.laneNumber));
+		for (const assignment of assignments) {
+			const lane = room.lanes.get(assignment.laneNumber);
+			if (lane) {
+				lane.teamName = assignment.teamName;
+				lane.representativeSource = assignment.representativeSource;
+				continue;
+			}
+			room.lanes.set(assignment.laneNumber, {
+				...assignment,
+				connected: false,
+				ready: false,
+				webSocket: null,
+				typingState: createTypingState(room.problems)
+			});
+		}
+
+		for (const [laneNumber, lane] of room.lanes) {
+			if (!assignedLaneNumbers.has(laneNumber) && !lane.connected) {
+				room.lanes.delete(laneNumber);
+			}
+		}
 	}
 
 	/** @param {WebSocket} webSocket */
@@ -455,6 +488,7 @@ function resetRoom(room, preset, attemptNumber) {
 	room.attemptNumber = attemptNumber;
 	room.problemSetId = preset.problem_set_id;
 	room.problemSetVersion = preset.version;
+	room.problems = problems;
 	room.status = 'waiting';
 	room.startsAt = null;
 	room.endsAt = null;

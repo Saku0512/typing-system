@@ -90,6 +90,63 @@ describe('competition lane reconnection', () => {
 			rmSync(temporaryDirectory, { recursive: true, force: true });
 		}
 	});
+
+	it('reloads assignments cached before setup is complete', () => {
+		const temporaryDirectory = mkdtempSync(join(tmpdir(), 'typing-system-assignment-test-'));
+		const databasePath = join(temporaryDirectory, 'test.db');
+		const previousDatabaseUrl = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = databasePath;
+		const database = new Database(databasePath);
+		database.exec(`
+			create table match_attempts (
+				match_number integer not null,
+				attempt_number integer not null,
+				problem_set_id text not null,
+				problem_set_version integer not null,
+				status text not null,
+				started_at integer,
+				ended_at integer,
+				primary key (match_number, attempt_number)
+			);
+			create table match_assignments (
+				match_number integer not null,
+				team_name text not null,
+				representative_source text not null,
+				lane_number integer not null
+			);
+		`);
+
+		try {
+			const manager = createCompetitionManager();
+			const monitor = new TestSocket();
+			manager.handle(monitor as unknown as WebSocket, {
+				type: 'monitor.subscribe',
+				data: { matchNumber: 1 }
+			});
+			database
+				.prepare('insert into match_assignments values (?, ?, ?, ?)')
+				.run(1, '1年生', '1-1', 1);
+
+			const player = new TestSocket();
+			manager.handle(player as unknown as WebSocket, {
+				type: 'typing.join',
+				data: { matchNumber: 1, laneNumber: 1 }
+			});
+
+			expect(player.messages.some((message) => message.type === 'typing.joined')).toBe(true);
+			expect(
+				player.messages.some(
+					(message) =>
+						message.type === 'system.error' && message.data.code === 'assignment_not_found'
+				)
+			).toBe(false);
+		} finally {
+			database.close();
+			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = previousDatabaseUrl;
+			rmSync(temporaryDirectory, { recursive: true, force: true });
+		}
+	});
 });
 
 describe('individual competition ranking', () => {
