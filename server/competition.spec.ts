@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
 	createCompetitionManager,
 	createIndividualRanks,
@@ -74,6 +74,7 @@ describe('competition lane reconnection', () => {
 			const join = { type: 'typing.join', data: { matchNumber: 1, laneNumber: 1 } };
 
 			manager.handle(replaced as unknown as WebSocket, join);
+			manager.handle(replaced as unknown as WebSocket, { type: 'typing.ready' });
 			manager.handle(replacement as unknown as WebSocket, join);
 			manager.handle(replaced as unknown as WebSocket, { type: 'typing.ready' });
 
@@ -92,6 +93,84 @@ describe('competition lane reconnection', () => {
 				admin.messages.filter((message) => message.type === 'competition.admin-status')
 			).toHaveLength(1);
 		} finally {
+			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = previousDatabaseUrl;
+			rmSync(temporaryDirectory, { recursive: true, force: true });
+		}
+	});
+
+	it('limits simultaneous admin subscribers', () => {
+		const manager = createCompetitionManager();
+		const admins = Array.from({ length: 9 }, () => new TestSocket());
+		for (const admin of admins) {
+			manager.handle(admin as unknown as WebSocket, { type: 'admin.subscribe' });
+		}
+
+		expect(admins.slice(0, 8).every((admin) => admin.closeCode === undefined)).toBe(true);
+		expect(admins[8].closeCode).toBe(1013);
+		expect(admins[8].closeReason).toBe('admin_subscriber_limit');
+	});
+
+	it('drops typing bursts beyond the per-lane allowance', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+		const temporaryDirectory = mkdtempSync(join(tmpdir(), 'typing-system-rate-limit-test-'));
+		const databasePath = join(temporaryDirectory, 'test.db');
+		const previousDatabaseUrl = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = databasePath;
+		const database = new Database(databasePath);
+		database.exec(`
+			create table match_attempts (
+				match_number integer not null, attempt_number integer not null,
+				problem_set_id text not null, problem_set_version integer not null,
+				status text not null, started_at integer, ended_at integer,
+				created_at integer not null, updated_at integer not null,
+				reason text, operated_by text,
+				primary key (match_number, attempt_number)
+			);
+			create table match_operations (
+				id integer primary key autoincrement, match_number integer not null,
+				attempt_number integer not null, action text not null, lane_number integer,
+				status_before text, status_after text, reason text,
+				operated_at integer not null, operated_by text not null
+			);
+			create table match_assignments (
+				match_number integer not null, team_name text not null,
+				representative_source text not null, lane_number integer not null
+			);
+		`);
+		for (let lane = 1; lane <= 6; lane += 1) {
+			database
+				.prepare('insert into match_assignments values (1, ?, ?, ?)')
+				.run(`team-${lane}`, `source-${lane}`, lane);
+		}
+		database.close();
+
+		try {
+			const manager = createCompetitionManager();
+			const players = Array.from({ length: 6 }, () => new TestSocket());
+			for (let lane = 1; lane <= 6; lane += 1) {
+				manager.handle(players[lane - 1] as unknown as WebSocket, {
+					type: 'typing.join',
+					data: { matchNumber: 1, laneNumber: lane }
+				});
+				manager.handle(players[lane - 1] as unknown as WebSocket, { type: 'typing.ready' });
+			}
+			expect(manager.start(1, 'test')).toEqual({ started: true });
+			vi.advanceTimersByTime(3_000);
+
+			for (const key of 'aozora') {
+				manager.handle(players[0] as unknown as WebSocket, {
+					type: 'typing.input',
+					data: { key }
+				});
+			}
+			const acceptedInputs = players[0].messages.filter(
+				(message) => message.type === 'typing.input-result'
+			);
+			expect(acceptedInputs).toHaveLength(3);
+		} finally {
+			vi.useRealTimers();
 			if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
 			else process.env.DATABASE_URL = previousDatabaseUrl;
 			rmSync(temporaryDirectory, { recursive: true, force: true });

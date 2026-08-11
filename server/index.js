@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { validateProductionConfiguration } from './configuration.js';
 import { attachRealtimeServer } from './realtime.js';
 
 try {
@@ -6,6 +7,7 @@ try {
 } catch (error) {
 	if (/** @type {{ code?: string }} */ (error).code !== 'ENOENT') throw error;
 }
+validateProductionConfiguration(process.env);
 
 process.env.PROTOCOL_HEADER ??= 'x-forwarded-proto';
 const handlerModulePath = '../build/handler.js';

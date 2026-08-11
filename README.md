@@ -48,8 +48,10 @@ npm run dev
 ```dotenv
 TOURNAMENT_NAME="秋季スポーツ大会 タイピング競技"
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-this-password
+ADMIN_PASSWORD=
 ```
+
+`ADMIN_PASSWORD`にはサンプル値を使わず、環境ごとに固有の長い値を設定してください。本番環境では未設定または旧サンプル値のまま起動できません。
 
 出場クラスは`docs/typing-team-structure-v1.json`を正本とし、個人名は登録しません。出場者は代表選出元（例: `IS2`、`専教`）で識別します。
 
@@ -73,7 +75,7 @@ docker compose -f docker-compose.dev.yml up --build
 docker compose -f docker-compose.production.yml up -d --build
 ```
 
-本番サーバーは`http://localhost:3000`で起動します。SQLiteデータはComposeの`production_data`ボリュームへ保存されます。
+本番サーバーは既定でホストの`127.0.0.1:3000`だけに公開されます。Basic認証の資格情報を保護するため、外部端末から利用する場合はHTTPS対応のリバースプロキシを前段に置いてください。SQLiteデータはComposeの`production_data`ボリュームへ保存されます。
 
 主な確認コマンドは次のとおりです。
 

@@ -235,6 +235,8 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 		if (representativeSource === '1-1') {
 			await terminal.reload();
 			await expect(terminal.getByLabel('出場クラス')).toHaveValue('1-1');
+			await expect(terminal.getByText('接続済み', { exact: true })).toBeVisible();
+			await terminal.getByRole('button', { name: '準備完了' }).click();
 			await expect(terminal.getByText('全員の準備を待っています')).toBeVisible();
 		}
 	}
@@ -293,7 +295,7 @@ test('synchronizes six competition terminals with monitoring', async ({ browser 
 	await expect(terminals[1].getByLabel('出場クラス')).toHaveValue('IS2');
 	await expect(terminals[1].getByRole('heading', { name: /2年生/ })).toBeVisible();
 	await expect(terminals[1].getByText('競技中', { exact: true })).toBeVisible();
-	await terminals[0].getByLabel('タイピング入力').pressSequentially('aozora');
+	await terminals[0].getByLabel('タイピング入力').pressSequentially('aozora', { delay: 50 });
 
 	const firstLane = monitor.getByRole('region', { name: 'レーン1 1年生' });
 	await expect(firstLane.getByText('靴音')).toBeVisible();

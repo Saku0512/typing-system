@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import { verifyBasicAuthorization } from './basic-auth.js';
 import { createCompetitionManager } from './competition.js';
 import { parseClientMessage } from './protocol.js';
 
@@ -34,8 +35,14 @@ export function attachRealtimeServer(server) {
 		});
 	});
 
-	webSocketServer.on('connection', (webSocket) => {
+	webSocketServer.on('connection', (webSocket, request) => {
 		const connectionId = randomUUID();
+		const adminAuthorized =
+			Boolean(process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) &&
+			verifyBasicAuthorization(request.headers.authorization, {
+				username: process.env.ADMIN_USERNAME ?? '',
+				password: process.env.ADMIN_PASSWORD ?? ''
+			});
 
 		send(webSocket, {
 			type: 'system.hello',
@@ -69,11 +76,17 @@ export function attachRealtimeServer(server) {
 				});
 				return;
 			}
+			if (parsed.data.type === 'admin.subscribe' && !adminAuthorized) {
+				send(webSocket, { type: 'system.error', data: { code: 'admin_auth_required' } });
+				webSocket.close(1008, 'admin_auth_required');
+				return;
+			}
 
 			competitionManager.handle(webSocket, parsed.data);
 		});
 
 		webSocket.on('close', () => competitionManager.disconnect(webSocket));
+		webSocket.on('error', () => competitionManager.disconnect(webSocket));
 	});
 
 	return webSocketServer;

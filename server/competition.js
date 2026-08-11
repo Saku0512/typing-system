@@ -34,6 +34,9 @@ const problemPresets = JSON.parse(
 );
 const durationSeconds = problemPresets.duration_seconds;
 const countdownMilliseconds = 3_000;
+const maxAdminSubscribers = 8;
+const inputRatePerSecond = 25;
+const inputBurstCapacity = 3;
 /** @type {Map<number, ProblemPreset>} */
 const mainPresets = new Map(
 	problemPresets.presets
@@ -58,6 +61,14 @@ export function createCompetitionManager() {
 		handle(webSocket, message) {
 			if (message.type === 'admin.subscribe') {
 				if (connections.get(webSocket)?.role === 'admin') return true;
+				if (adminSubscribers.size >= maxAdminSubscribers) {
+					send(webSocket, {
+						type: 'system.error',
+						data: { code: 'admin_subscriber_limit' }
+					});
+					webSocket.close(1013, 'admin_subscriber_limit');
+					return true;
+				}
 				leaveCurrentConnection(webSocket);
 				adminSubscribers.add(webSocket);
 				connections.set(webSocket, { role: 'admin' });
@@ -102,6 +113,7 @@ export function createCompetitionManager() {
 					});
 					replacedWebSocket.close(4001, 'lane_reconnected');
 				}
+				if (lane.webSocket !== webSocket && room.status === 'waiting') lane.ready = false;
 				lane.webSocket = webSocket;
 				lane.connected = true;
 				connections.set(webSocket, { role: 'player', room, lane });
@@ -127,6 +139,7 @@ export function createCompetitionManager() {
 				if (connection?.role !== 'player' || connection.room.status !== 'running') return true;
 				const now = Date.now();
 				if (now >= connection.room.endsAt) finishRoom(connection.room);
+				else if (!consumeInputAllowance(connection.lane, now)) return true;
 				else {
 					const result = applyTypingEvent(
 						connection.lane.typingState,
@@ -290,6 +303,8 @@ export function createCompetitionManager() {
 						ready: false,
 						webSocket: null,
 						persistedResult: persistedResults.get(assignment.laneNumber) ?? null,
+						inputTokens: inputBurstCapacity,
+						inputTokenUpdatedAt: Date.now(),
 						typingState: createTypingState(problems)
 					}
 				])
@@ -318,6 +333,8 @@ export function createCompetitionManager() {
 				ready: false,
 				webSocket: null,
 				persistedResult: null,
+				inputTokens: inputBurstCapacity,
+				inputTokenUpdatedAt: Date.now(),
 				typingState: createTypingState(room.problems)
 			});
 		}
@@ -351,6 +368,7 @@ export function createCompetitionManager() {
 		if (connection.lane.webSocket !== webSocket) return;
 		connection.lane.webSocket = null;
 		connection.lane.connected = false;
+		connection.lane.ready = false;
 		if (connection.room.status === 'countdown' && Date.now() < connection.room.startsAt) {
 			connection.room.status = 'waiting';
 			connection.room.startsAt = null;
@@ -521,6 +539,8 @@ function resetRoom(room, preset, attemptNumber) {
 	for (const lane of room.lanes.values()) {
 		lane.ready = false;
 		lane.persistedResult = null;
+		lane.inputTokens = inputBurstCapacity;
+		lane.inputTokenUpdatedAt = Date.now();
 		lane.typingState = createTypingState(problems);
 	}
 	broadcastSnapshot(room);
@@ -887,6 +907,19 @@ function calculateRawScore(correctTypes, incorrectTypes) {
 	const attempts = correctTypes + incorrectTypes;
 	if (attempts === 0) return 0;
 	return (60 * correctTypes ** 4) / (durationSeconds * attempts ** 3);
+}
+
+/** @param {any} lane @param {number} now */
+function consumeInputAllowance(lane, now) {
+	const elapsedSeconds = Math.max(0, now - lane.inputTokenUpdatedAt) / 1_000;
+	lane.inputTokens = Math.min(
+		inputBurstCapacity,
+		lane.inputTokens + elapsedSeconds * inputRatePerSecond
+	);
+	lane.inputTokenUpdatedAt = now;
+	if (lane.inputTokens < 1) return false;
+	lane.inputTokens -= 1;
+	return true;
 }
 
 /** @param {any} room @param {any} lane */
