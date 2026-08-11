@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
 import Database from 'better-sqlite3';
+import { randomBytes } from 'node:crypto';
+import net from 'node:net';
+import { WebSocket as ClientWebSocket } from 'ws';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -16,8 +19,63 @@ const tournamentName = process.env.TOURNAMENT_NAME;
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
 const databaseUrl = process.env.DATABASE_URL ?? 'data/e2e.db';
+const serverPort = Number(process.env.PORT ?? 3000);
+const webSocketUrl = `ws://127.0.0.1:${serverPort}/ws`;
 if (!tournamentName || !adminUsername || !adminPassword) {
 	throw new Error('TOURNAMENT_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD must be set');
+}
+
+function subscribeToAdminStatus(authorization?: string) {
+	const webSocket = new ClientWebSocket(webSocketUrl, {
+		headers: authorization ? { authorization } : undefined
+	});
+	const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+		webSocket.once('close', (code, reason) => resolve({ code, reason: reason.toString() }))
+	);
+	const result = new Promise<{ type: string; code?: string }>((resolve, reject) => {
+		const timeout = setTimeout(() => reject(new Error('WebSocket subscription timed out')), 3_000);
+		webSocket.once('error', reject);
+		webSocket.on('message', (payload) => {
+			const message = JSON.parse(payload.toString()) as { type: string; data?: { code?: string } };
+			if (message.type !== 'competition.admin-status' && message.type !== 'system.error') return;
+			clearTimeout(timeout);
+			resolve({ type: message.type, code: message.data?.code });
+		});
+		webSocket.once('open', () => webSocket.send(JSON.stringify({ type: 'admin.subscribe' })));
+	});
+	return { webSocket, result, closed };
+}
+
+async function closeWebSockets(webSockets: ClientWebSocket[]) {
+	await Promise.all(
+		webSockets.map(
+			(webSocket) =>
+				new Promise<void>((resolve) => {
+					if (webSocket.readyState === ClientWebSocket.CLOSED) return resolve();
+					webSocket.once('close', () => resolve());
+					webSocket.close();
+					setTimeout(() => {
+						webSocket.terminate();
+						resolve();
+					}, 1_000).unref();
+				})
+		)
+	);
+}
+
+function clearCompetitionResults() {
+	const database = new Database(databaseUrl);
+	database.pragma('busy_timeout = 5000');
+	database.transaction(() => {
+		database.prepare('delete from result_exports').run();
+		database.prepare('delete from match_confirmations').run();
+		database.prepare('delete from match_disqualifications').run();
+		database.prepare('delete from match_operations').run();
+		database.prepare('delete from match_attempt_results').run();
+		database.prepare('delete from match_attempts').run();
+		database.prepare('delete from match_results').run();
+	})();
+	database.close();
 }
 
 test('loads the configured tournament and reports database connectivity', async ({
@@ -34,6 +92,86 @@ test('loads the configured tournament and reports database connectivity', async 
 	const response = await request.get('/api/health');
 	expect(response.ok()).toBe(true);
 	await expect(response.json()).resolves.toMatchObject({ status: 'ok', database: 'connected' });
+});
+
+test('rejects unauthenticated admin WebSocket subscriptions', async () => {
+	const { webSocket, result, closed } = subscribeToAdminStatus();
+	try {
+		await expect(result).resolves.toEqual({
+			type: 'system.error',
+			code: 'admin_auth_required'
+		});
+		await expect(closed).resolves.toEqual({ code: 1008, reason: 'admin_auth_required' });
+	} finally {
+		if (webSocket.readyState !== ClientWebSocket.CLOSED) webSocket.terminate();
+	}
+});
+
+test('caps authenticated admin WebSocket subscriptions', async () => {
+	const authorization = `Basic ${Buffer.from(`${adminUsername}:${adminPassword}`).toString('base64')}`;
+	const subscriptions = Array.from({ length: 9 }, () => subscribeToAdminStatus(authorization));
+	try {
+		const results = await Promise.all(subscriptions.map((subscription) => subscription.result));
+		expect(results.filter((result) => result.type === 'competition.admin-status')).toHaveLength(8);
+		expect(results.filter((result) => result.code === 'admin_subscriber_limit')).toHaveLength(1);
+	} finally {
+		await closeWebSockets(subscriptions.map((subscription) => subscription.webSocket));
+	}
+});
+
+test('survives a malformed WebSocket text frame', async ({ request }) => {
+	const socket = net.createConnection({ host: '127.0.0.1', port: serverPort });
+	await new Promise<void>((resolve, reject) => {
+		socket.once('connect', resolve);
+		socket.once('error', reject);
+	});
+	const key = randomBytes(16).toString('base64');
+	socket.write(
+		`GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`
+	);
+	await new Promise<void>((resolve, reject) => {
+		let response = '';
+		const timeout = setTimeout(() => reject(new Error('WebSocket upgrade timed out')), 3_000);
+		socket.on('data', (chunk) => {
+			response += chunk.toString('latin1');
+			if (!response.includes('\r\n\r\n')) return;
+			clearTimeout(timeout);
+			resolve();
+		});
+	});
+
+	// Masked text frame containing invalid UTF-8 (C3 28).
+	socket.write(Buffer.from([0x81, 0x82, 0, 0, 0, 0, 0xc3, 0x28]));
+	await new Promise((resolve) => setTimeout(resolve, 250));
+	socket.destroy();
+
+	const health = await request.get('/api/health');
+	expect(health.ok()).toBe(true);
+});
+
+test('requires a replacement terminal to become ready again', async ({ browser }) => {
+	clearCompetitionResults();
+	const firstContext = await browser.newContext();
+	const replacementContext = await browser.newContext();
+	try {
+		const first = await firstContext.newPage();
+		await first.goto('/competition');
+		await first.getByLabel('出場クラス').selectOption('1-1');
+		await first.getByRole('button', { name: '端末を接続' }).click();
+		await first.getByRole('button', { name: '準備完了' }).click();
+		await expect(first.getByText('全員の準備を待っています')).toBeVisible();
+
+		const replacement = await replacementContext.newPage();
+		await replacement.goto('/competition');
+		await replacement.getByLabel('出場クラス').selectOption('1-1');
+		await replacement.getByRole('button', { name: '端末を接続' }).click();
+		await expect(replacement.getByText('接続済み', { exact: true })).toBeVisible();
+		await expect(replacement.getByRole('button', { name: '準備完了' })).toBeVisible();
+		await expect(first.getByText('この出場クラスは別の端末で接続されました。')).toBeVisible();
+	} finally {
+		await firstContext.close();
+		await replacementContext.close();
+	}
 });
 
 test('protects the admin screen and saves valid assignments', async ({ browser, request }) => {
@@ -202,17 +340,7 @@ test('confirms finished matches manually before publishing overall standings', a
 });
 
 test('synchronizes six competition terminals with monitoring', async ({ browser }) => {
-	const database = new Database(databaseUrl);
-	database.transaction(() => {
-		database.prepare('delete from result_exports').run();
-		database.prepare('delete from match_confirmations').run();
-		database.prepare('delete from match_disqualifications').run();
-		database.prepare('delete from match_operations').run();
-		database.prepare('delete from match_attempt_results').run();
-		database.prepare('delete from match_attempts').run();
-		database.prepare('delete from match_results').run();
-	})();
-	database.close();
+	clearCompetitionResults();
 
 	const monitorContext = await browser.newContext();
 	const monitor = await monitorContext.newPage();
