@@ -24,6 +24,40 @@ const webSocketUrl = `ws://127.0.0.1:${serverPort}/ws`;
 if (!tournamentName || !adminUsername || !adminPassword) {
 	throw new Error('TOURNAMENT_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD must be set');
 }
+const adminAuthorization = `Basic ${Buffer.from(`${adminUsername}:${adminPassword}`).toString('base64')}`;
+const defaultAssignmentForm = {
+	source_1_0: '1-1',
+	source_1_1: 'IS2',
+	source_1_2: 'IS3',
+	source_1_3: 'IS4',
+	source_1_4: 'IS5',
+	source_1_5: '専教',
+	source_2_0: '1-2',
+	source_2_1: 'IT2',
+	source_2_2: 'IT3',
+	source_2_3: 'IT4',
+	source_2_4: 'IT5',
+	source_2_5: '専教',
+	source_3_0: '1-3',
+	source_3_1: 'IE2',
+	source_3_2: 'IE3',
+	source_3_3: 'IE4',
+	source_3_4: 'IE5',
+	source_3_5: '専教'
+};
+
+test.beforeAll(async ({ request }) => {
+	const response = await request.post('/admin?/saveAssignments', {
+		headers: {
+			authorization: adminAuthorization,
+			accept: 'application/json',
+			origin: `http://127.0.0.1:${serverPort}`,
+			'x-sveltekit-action': 'true'
+		},
+		form: defaultAssignmentForm
+	});
+	expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true);
+});
 
 function subscribeToAdminStatus(authorization?: string) {
 	const webSocket = new ClientWebSocket(webSocketUrl, {
@@ -108,8 +142,7 @@ test('rejects unauthenticated admin WebSocket subscriptions', async () => {
 });
 
 test('caps authenticated admin WebSocket subscriptions', async () => {
-	const authorization = `Basic ${Buffer.from(`${adminUsername}:${adminPassword}`).toString('base64')}`;
-	const subscriptions = Array.from({ length: 9 }, () => subscribeToAdminStatus(authorization));
+	const subscriptions = Array.from({ length: 9 }, () => subscribeToAdminStatus(adminAuthorization));
 	try {
 		const results = await Promise.all(subscriptions.map((subscription) => subscription.result));
 		expect(results.filter((result) => result.type === 'competition.admin-status')).toHaveLength(8);
